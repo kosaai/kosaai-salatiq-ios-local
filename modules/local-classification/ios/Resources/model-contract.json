@@ -1,0 +1,207 @@
+{
+  "architecture": "yolo26n-cls.yaml",
+  "task": "classify",
+  "checkpoint_sha256": "e175c18a8e6627c36cc2d8f45eb90a7b80cfc539caf163e16d1d2469bd2c2d09",
+  "class_order": [
+    "bowing",
+    "prostrating",
+    "sitting",
+    "standing"
+  ],
+  "ios_poses": [
+    "BOWING",
+    "PROSTRATING",
+    "SITTING",
+    "STANDING"
+  ],
+  "input": {
+    "name": "images",
+    "shape": [
+      1,
+      3,
+      224,
+      224
+    ],
+    "dtype": "FLOAT32",
+    "color": "RGB",
+    "normalization": "divide by 255; no mean/std"
+  },
+  "preprocessing": "Portrait unmirrored BGRA -> RGB; antialiased PIL bilinear short-edge resize to 224; centered 224 crop, round-to-even crop origin",
+  "output": {
+    "name": "probabilities",
+    "shape": [
+      1,
+      4
+    ],
+    "dtype": "FLOAT32",
+    "interpretation": "Softmax probabilities; argmax class, max probability confidence; no threshold"
+  },
+  "weights": "FLOAT16 internal; FLOAT32 input/output",
+  "minimum_ios_model": 16,
+  "versions": {
+    "torch": "2.7.0+cpu",
+    "coremltools": "9.0"
+  },
+  "apple_runtime_test": "NOT RUN: Apple Core ML runtime unavailable on Linux",
+  "comparisons": [
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/bowing/IMG_9007.JPG",
+      "pytorch": [
+        [
+          0.9575281143188477,
+          0.035415880382061005,
+          0.005965740419924259,
+          0.0010902065550908446
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/bowing/IMG_9010.JPG",
+      "pytorch": [
+        [
+          0.9936362504959106,
+          0.0023921888787299395,
+          0.0014827969716861844,
+          0.002488856902346015
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/bowing/Image_87.png",
+      "pytorch": [
+        [
+          0.990254819393158,
+          7.291896326933056e-05,
+          0.009583531878888607,
+          8.86858906596899e-05
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/prostrating/IMG_8982.JPG",
+      "pytorch": [
+        [
+          5.953941339953417e-08,
+          0.9999998807907104,
+          5.860334439944381e-09,
+          1.2628497136901728e-09
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/prostrating/IMG_8983.JPG",
+      "pytorch": [
+        [
+          3.5118224332109094e-05,
+          0.9999635219573975,
+          8.915589546631963e-07,
+          4.97109226671455e-07
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/prostrating/IMG_8984.JPG",
+      "pytorch": [
+        [
+          6.884725735289976e-06,
+          0.998765230178833,
+          0.0012143604690209031,
+          1.3576735000242479e-05
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/sitting/16.jpg",
+      "pytorch": [
+        [
+          0.11716224253177643,
+          0.011280519887804985,
+          0.8450028896331787,
+          0.02655438892543316
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/sitting/7465527.jpg",
+      "pytorch": [
+        [
+          8.529631401188453e-08,
+          2.7898815915250452e-06,
+          0.9923951625823975,
+          0.007601892575621605
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/sitting/87833055-islam-muslim-man-in-muslim-praying-and-sit-on-red-carpet-in-mosque.jpg",
+      "pytorch": [
+        [
+          1.039004260405818e-08,
+          1.4212574797056732e-06,
+          0.9999978542327881,
+          7.466807687706023e-07
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/standing/Image_1.png",
+      "pytorch": [
+        [
+          0.011914266273379326,
+          0.00111470278352499,
+          0.3111483156681061,
+          0.6758226752281189
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/standing/Image_19.jpg",
+      "pytorch": [
+        [
+          0.00010134773765457794,
+          0.0017341505736112595,
+          0.06744258850812912,
+          0.9307219386100769
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    },
+    {
+      "image": "/home/opc/Desktop/Dataset/\u0648\u0636\u0639\u064a\u0627\u062a \u0627\u0644\u0635\u0644\u0627\u0629 \u062a\u062f\u0631\u064a\u0628/prayer_cls/val/standing/Image_20.jpg",
+      "pytorch": [
+        [
+          2.965959144951569e-10,
+          9.055076688468944e-10,
+          3.4266187753928534e-07,
+          0.9999996423721313
+        ]
+      ],
+      "trace_max_abs_error": 0.0
+    }
+  ],
+  "operation_types": [
+    "add",
+    "cast",
+    "concat",
+    "const",
+    "conv",
+    "linear",
+    "matmul",
+    "mul",
+    "reduce_mean",
+    "reshape",
+    "silu",
+    "softmax",
+    "split"
+  ]
+}

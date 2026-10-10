@@ -1,0 +1,12 @@
+{
+  "checkpoint_sha256": "e175c18a8e6627c36cc2d8f45eb90a7b80cfc539caf163e16d1d2469bd2c2d09",
+  "input_shape": [1, 3, 224, 224],
+  "input_formula": "float32(index % 251) / 250 in contiguous NCHW",
+  "class_order": ["bowing", "prostrating", "sitting", "standing"],
+  "pytorch_probabilities": [
+    4.2080414459633175e-06,
+    0.9999305009841919,
+    7.0210685407801066e-06,
+    5.8270772569812834e-05
+  ]
+}

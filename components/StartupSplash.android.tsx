@@ -77,6 +77,7 @@ export function StartupSplash({ children }: { children: ReactNode }) {
         style={styles.app}
         onLayout={() => setLaidOut(true)}
         pointerEvents={visible ? 'none' : 'auto'}
+        accessibilityElementsHidden={visible}
         importantForAccessibility={visible ? 'no-hide-descendants' : 'auto'}
       >
         {children}

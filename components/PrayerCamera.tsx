@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { colors, lightColors } from '../constants/theme';
+import { canStartLocalPrayer } from '../services/localReadiness';
 import { predictImage, type PredictionPose, type PredictionResponse } from '../services/predictionApi';
 import type { CameraStatus, EngineStatus } from '../types/prayer';
 import { FontAwesomeIcon } from './FontAwesomeIcon';
@@ -102,11 +103,11 @@ function isDetectedPrayerPose(pose: PredictionPose | null): pose is PredictionPo
 }
 
 function getEnginePresentation(status: EngineStatus, cameraActive: boolean) {
-  if (Platform.OS === 'android') {
+  if (Platform.OS !== 'web') {
     switch (status) {
       case 'connected': return { text: 'المحرك المحلي جاهز', color: colors.sage };
       case 'connecting': return { text: 'جاري تهيئة المحرك المحلي...', color: colors.brassSoft };
-      case 'error': return { text: 'تعذر تشغيل المحرك المحلي — يلزم بناء Android الأصلي', color: colors.danger };
+      case 'error': return { text: 'تعذر تشغيل المحرك المحلي — يلزم بناء التطبيق الأصلي', color: colors.danger };
       default: return { text: 'المحرك المحلي غير جاهز', color: colors.muted };
     }
   }
@@ -163,6 +164,7 @@ export function PrayerCamera({
   const cameraReadyRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   const appForegroundRef = useRef(AppState.currentState === 'active');
+  const [isForeground, setIsForeground] = useState(AppState.currentState === 'active');
   const [permission, requestPermission] = useCameraPermissions();
   const [isActive, setIsActive] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
@@ -179,8 +181,16 @@ export function PrayerCamera({
   const graceStartedAt = preSujudTransitionStartedAt ?? postSujudTransitionStartedAt;
   const graceNoticePrefix = 'تم اكتشاف حركة انتقال';
   const countdown = countdownState?.sessionId === sessionId ? countdownState.value : null;
-  const canStartPrayer =
-    engineStatus === 'connected' &&
+  const canStartPrayer = Platform.OS === 'ios' ? canStartLocalPrayer({
+    permissionGranted: permission?.granted === true,
+    cameraReady: isCameraReady,
+    cameraActive: isActive,
+    foreground: isForeground,
+    engineStatus,
+    prayerStarted: isPrayerStarted,
+    countdown,
+    pendingSession: pendingNewSessionStartId,
+  }) : engineStatus === 'connected' &&
     isCameraReady &&
     !isPrayerStarted &&
     countdown === null &&
@@ -192,16 +202,6 @@ export function PrayerCamera({
   useEffect(() => {
     onPoseDetectedRef.current = onPoseDetected;
   }, [onPoseDetected]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const subscription = AppState.addEventListener('change', (state) => {
-      appForegroundRef.current = state === 'active';
-      // A background interval is not evidence of continuous observed stability.
-      poseCandidateRef.current = null;
-    });
-    return () => subscription.remove();
-  }, []);
 
   // Shared by remote Web results and native Android results. Preserve the
   // result-driven 1-second filter and lastLivePoseRef duplicate protection.
@@ -292,6 +292,24 @@ export function PrayerCamera({
     }
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      appForegroundRef.current = state === 'active';
+      setIsForeground(state === 'active');
+      // Background time is never evidence of observed pose stability.
+      poseCandidateRef.current = null;
+      if (Platform.OS === 'ios' && state !== 'active') {
+        cameraReadyRef.current = false;
+        setIsCameraReady(false);
+        clearCountdownTimer();
+        setCountdown(null);
+        stopLiveLoop();
+      }
+    });
+    return () => subscription.remove();
+  }, [clearCountdownTimer, setCountdown, stopLiveLoop]);
+
   const beginCamera = useCallback(async () => {
     setError(null);
     void onCheckEngine();
@@ -330,6 +348,7 @@ export function PrayerCamera({
   }, [clearCountdownTimer, onStatusChange, setCountdown, stopLiveLoop]);
 
   const toggleFacing = useCallback(() => {
+    if (Platform.OS === 'ios') return;
     if (Platform.OS === 'android') {
       poseCandidateRef.current = null;
       cameraReadyRef.current = false;
@@ -404,13 +423,13 @@ export function PrayerCamera({
   }, [clearCountdownTimer, engineStatus, setCountdown, stopLiveLoop]);
 
   useEffect(() => {
-    if (Platform.OS !== 'android' || !localInferenceEnabled) return;
+    if (Platform.OS === 'web' || !localInferenceEnabled) return;
     liveLoopActiveRef.current = true;
     return stopLiveLoop;
   }, [localInferenceEnabled, sessionId, stopLiveLoop]);
 
   useEffect(() => {
-    if (Platform.OS === 'android') return;
+    if (Platform.OS !== 'web') return;
     if (
       engineStatus !== 'connected' ||
       !isCameraReady ||
@@ -575,6 +594,17 @@ export function PrayerCamera({
     onStatusChange('ERROR');
   };
 
+  const handleCameraUnavailable = () => {
+    // Do not let background/interrupted capture count as observed stability or
+    // allow a countdown to finish while the front camera is unavailable.
+    cameraReadyRef.current = false;
+    setIsCameraReady(false);
+    poseCandidateRef.current = null;
+    clearCountdownTimer();
+    setCountdown(null);
+    onStatusChange('STARTING');
+  };
+
   return (
     <View>
       <LinearGradient
@@ -590,13 +620,14 @@ export function PrayerCamera({
         >
           {isActive ? (
             <>
-              {Platform.OS === 'android' ? (
+              {Platform.OS !== 'web' ? (
                 <LocalClassificationCamera
                   style={StyleSheet.absoluteFill}
-                  facing={facing}
+                  facing={Platform.OS === 'ios' ? 'front' : facing}
                   inferenceEnabled={localInferenceEnabled}
                   sessionId={sessionId}
                   onCameraReady={handleCameraReady}
+                  onCameraUnavailable={handleCameraUnavailable}
                   onMountError={({ nativeEvent }) => handleCameraError(nativeEvent.message)}
                   onPrediction={({ nativeEvent }) => {
                     if (nativeEvent.sessionId === sessionId && nativeEvent.sessionId === sessionIdRef.current &&
@@ -627,13 +658,13 @@ export function PrayerCamera({
                   <Text style={styles.statusText}>{engine.text}</Text>
                 </View>
               ) : null}
-              <Pressable
+              {Platform.OS !== 'ios' && <Pressable
                 accessibilityLabel="تبديل الكاميرا"
                 onPress={toggleFacing}
                 style={styles.flipButton}
               >
                 <Text style={styles.flipText}>↻</Text>
-              </Pressable>
+              </Pressable>}
             </>
           ) : (
             <View style={styles.offContent}>

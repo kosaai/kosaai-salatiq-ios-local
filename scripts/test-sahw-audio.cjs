@@ -119,7 +119,7 @@ function playbackHarness() {
   };
   const audio = {
     useAudioPlayer(source, options) {
-      assert.equal(source.uri, 'file:///android_res/raw/subhan_allah.mp3');
+      assert.equal(source.uri, process.env.TEST_PLATFORM === 'ios' ? 'file:///app/subhan_allah.mp3' : 'file:///android_res/raw/subhan_allah.mp3');
       assert.equal(options.downloadFirst, false);
       return player;
     },
@@ -135,7 +135,8 @@ function playbackHarness() {
     require(name) {
       if (name === 'react') return react;
       if (name === 'expo-audio') return audio;
-      if (name === 'react-native') return { Platform: { OS: 'android' } };
+      if (name === 'react-native') return { Platform: { OS: process.env.TEST_PLATFORM ?? 'android' } };
+      if (name === '../modules/local-classification') return { localClassification: { alertAudioUri: 'file:///app/subhan_allah.mp3' } };
       if (name === '../services/sahwAudio') return { createSahwAudioEventTracker };
       throw new Error(`Unexpected dependency: ${name}`);
     },

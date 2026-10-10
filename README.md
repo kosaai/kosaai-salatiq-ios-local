@@ -1,4 +1,120 @@
-# صلاتك — Android local classification
+# صلاتك — independent iPhone / Core ML version
+
+This is the independent copy at **`~/StudioProjects/kosaai-salatiq-ios-local`**.
+The source Android project remains at `~/Desktop/kosaai-salatiq-android-local`
+(the user confirmed this actual source because the requested StudioProjects
+Android path did not exist). The complete source folder was copied before any
+edits; all iOS changes are confined to this copy. Its inherited Android Git remote
+was removed and work is on the local `ios-local` branch; nothing was pushed.
+
+## iOS implementation and actual build status
+
+**Implemented:** front-only AVFoundation preview/capture, local Core ML
+classification, existing prayer engine/stability/countdown/Sahw rules, exact
+bundled Subhan Allah sound, original app icon and 1.28-second startup animation.
+
+**Not built:** this machine is Linux ARM64, with no Xcode, iPhoneOS SDK or
+accessible Mac. No valid iPhone `.app` or IPA has been produced. The requested
+`~/Desktop/Salatiq-iOS-test.ipa` does not exist. Apple Core ML runtime and native
+camera/audio execution remain unverified. See **[actual iOS validation results](docs/IOS_VALIDATION.md)**.
+
+### Local model
+
+The supplied checkpoint is preserved unchanged at `model-source/best.pt`.
+The converted model is **`modules/local-classification/ios/Resources/best.mlpackage`**.
+Its task is **YOLO26n classification**, not object detection, with these indices:
+
+| Index | Label | Prayer pose |
+| --- | --- | --- |
+| 0 | bowing | BOWING |
+| 1 | prostrating | PROSTRATING |
+| 2 | sitting | SITTING |
+| 3 | standing | STANDING |
+
+Input is FLOAT32 **RGB NCHW `[1,3,224,224]`**, unlike Android's NHWC tensor.
+Native BGRA frames are physically oriented upright portrait and unmirrored for
+classification. The real Swift kernel respects row stride, converts BGRA to RGB,
+uses antialiased PIL-compatible bilinear short-edge resize to 224, center crop
+with round-to-even origin, and divides by 255. No ImageNet mean/std or second
+normalization is applied. Output is FLOAT32 `[1,4]` Softmax probabilities with
+FP16 internal computation; argmax selects the pose and its probability is
+confidence. There is no extra softmax, class, detector postprocessing or threshold.
+`model-contract.json` records the inspected contract and checkpoint provenance.
+
+CocoaPods declares the package in the `SalatiqCoreML` resource bundle; Xcode
+compiles it to `best.mlmodelc`. `PoseClassifier` loads only that compiled bundled
+model, reuses it, validates the actual tensor contract, and permits all Apple
+compute units (CPU/GPU/Neural Engine). Camera capture uses a single serial queue
+and a single front-camera owner, discards late frames and samples at most 4 Hz.
+Preview is mirrored; inference is not. Backgrounding/interruption stops capture,
+invalidates readiness/stability and cancels a pending countdown. Detach clears
+delegates/inputs/outputs and releases per-view preprocessing resources.
+
+### iPhone device build and re-signable IPA
+
+The generated `ios/` project is included; lasting customization lives in config,
+plugins and the local Expo module. The minimum OS is iOS 16.4, bundle identifier
+is `com.kosaai.salatiq.ioslocal`, and display name remains **صلاتك**. No iCloud,
+App Groups, push, background audio/recording or other restricted entitlement is
+enabled. Camera permission text is Arabic and no microphone permission is added.
+
+The following script, when run on macOS with a compatible Xcode and CocoaPods,
+performs the work automatically rather than building a Simulator app:
+
+```sh
+npm ci
+npm run ios:device-ipa
+```
+
+It regenerates/verifies the native project, installs pods, builds **Release for
+`generic/platform=iOS`, `iphoneos`, ARM64** with Apple signing disabled, and
+packages the real application as **`Payload/Salatiq.app`**. Only then does it
+write `~/Desktop/Salatiq-iOS-test.ipa` and inspect its device Mach-O, JS/Hermes
+bundle, compiled Core ML model, exact MP3, native frameworks and splash/icon
+resources. The user can re-sign the unsigned IPA with SideStore/SideInstaller.
+Before packaging, it also runs a real Apple-framework model compile/load/predict
+smoke test and compares deterministic input against original PyTorch probabilities
+in `docs/COREML_SMOKE_REFERENCE.json`.
+The script fails before packaging if any build or asset requirement fails.
+
+Release uses the generated Expo `export:embed` build phase and loads
+`Bundle.main/main.jsbundle`; Metro is only a development tool. All iOS inference
+services are platform-local, with no API URL, backend readiness or uploaded
+frames. The Start Prayer button requires permission, first real front-camera
+frame, loaded model and foreground readiness, then uses the existing five-second
+countdown. Pose icons are embedded SVG strings, so their appearance is preserved
+without an asset fetch. Audio uses a `Bundle.main` file URI and the unchanged
+one-shot tracker/player queue.
+
+### Reproducible conversion and checks
+
+```sh
+python3 -m venv .ios-tools/python
+.ios-tools/python/bin/python -m pip install -r scripts/coreml-requirements.txt
+.ios-tools/python/bin/python scripts/convert-coreml.py model-source/best.pt --image /path/to/prayer.jpg
+.ios-tools/python/bin/python scripts/test-coreml-runtime.py
+npm run ios:prepare
+npm run typecheck
+npm run lint
+node scripts/test-ios-readiness.cjs
+node scripts/test-ios-camera.cjs
+npx tsc services/prayerEngine.ts services/sahwAudio.ts constants/fajrSequence.ts constants/fourRakahSequence.ts constants/maghribSequence.ts --module commonjs --target ES2020 --outDir validation-output/prayer --skipLibCheck --ignoreConfig
+node scripts/test-prayer-regression.cjs validation-output/prayer
+TEST_PLATFORM=ios node scripts/test-sahw-audio.cjs validation-output/prayer
+```
+
+Conversion/runtime comparison automatically uses Apple's prediction API on
+macOS. On Linux, it explicitly reports that runtime test as unavailable and
+separately compares the **saved/reloaded converted MIL graph** with PyTorch
+using a CPU reference evaluator. The latter is not Apple Core ML inference.
+The included package was checked on 12 real validation images across all four
+poses. All argmax labels agree; maximum probability difference was 0.00355.
+Actual Swift preprocessing was compiled/executed against independent Pillow
+fixtures on the host, with at most one byte difference and mean error below 0.002.
+
+## Inherited Android reference
+
+The sections below are retained from the original Android project for context.
 
 Independent repository: `kosaai/kosaai-salatiq-android-local`.
 

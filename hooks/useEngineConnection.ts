@@ -10,7 +10,7 @@ export function useEngineConnection() {
   const checkConnection = useCallback(async () => {
     const currentRequest = ++requestId.current;
 
-    if (Platform.OS !== 'android' && !getEngineApiUrl()) {
+    if (Platform.OS === 'web' && !getEngineApiUrl()) {
       setEngineStatus('disconnected');
       return 'disconnected' as const;
     }

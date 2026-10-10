@@ -6,6 +6,7 @@ export type LocalClassificationCameraProps = ViewProps & {
   inferenceEnabled: boolean;
   sessionId: number;
   onCameraReady: () => void;
+  onCameraUnavailable?: () => void;
   onPrediction: (event: { nativeEvent: PredictionResponse & { sessionId: number } }) => void;
   onMountError: (event: { nativeEvent: { message: string } }) => void;
 };

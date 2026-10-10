@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "صلاتك",
-    "slug": "salatiq-expo",
+    "slug": "salatiq-ios-local",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "salatiq",
@@ -11,7 +11,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "نحتاج إلى الكاميرا لعرض معاينة مراقبة الصلاة.",
+          "cameraPermission": "نحتاج إلى الكاميرا الأمامية لمتابعة وضعيات الصلاة محليًا على جهازك دون إرسال الصور.",
+          "microphonePermission": false,
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": false
         }
@@ -20,10 +21,28 @@
         "expo-asset",
         { "assets": ["./assets/audio/subhan_allah.mp3"] }
       ],
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
+          "ios": {
+            "backgroundColor": "#FDFAEC",
+            "image": "./assets/startup/mark.png",
+            "imageWidth": 184,
+            "resizeMode": "contain",
+            "dark": {
+              "backgroundColor": "#FDFAEC",
+              "image": "./assets/startup/mark.png"
+            }
+          },
           "android": {
             "backgroundColor": "#FDFAEC",
             "image": "./assets/startup/mark.png",
@@ -37,10 +56,19 @@
         }
       ],
       "./plugins/withLocalClassification",
-      "expo-font"
+      "expo-font",
+      "./plugins/withSalatiqIOS"
     ],
     "ios": {
-      "supportsTablet": true
+      "userInterfaceStyle": "automatic",
+      "bundleIdentifier": "com.kosaai.salatiq.ioslocal",
+      "supportsTablet": false,
+      "infoPlist": {
+        "CFBundleDisplayName": "صلاتك",
+        "NSCameraUsageDescription": "نحتاج إلى الكاميرا الأمامية لمتابعة وضعيات الصلاة محليًا على جهازك دون إرسال الصور.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {}
     },
     "android": {
       "package": "com.kosaai.salatiq",

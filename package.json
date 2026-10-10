@@ -1,5 +1,5 @@
 {
-  "name": "salatiq-expo",
+  "name": "salatiq-ios-local",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
@@ -38,6 +38,9 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "ios:prepare": "node scripts/prepare-ios-pose-icons.mjs && expo prebuild --platform ios --no-install && node scripts/verify-ios-project.mjs",
+    "ios:verify": "node scripts/verify-ios-project.mjs",
+    "ios:device-ipa": "bash scripts/build-ios-device.sh",
     "android:prepare": "expo prebuild --platform android --no-install && node scripts/verify-android-assets.mjs",
     "android:verify-assets": "node scripts/verify-android-assets.mjs"
   },

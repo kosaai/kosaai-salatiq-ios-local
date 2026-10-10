@@ -1,6 +1,7 @@
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useCallback, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
+import { localClassification } from '../modules/local-classification';
 import { createSahwAudioEventTracker } from '../services/sahwAudio';
 import type { PrayerState } from '../types/prayer';
 
@@ -8,7 +9,9 @@ import type { PrayerState } from '../types/prayer';
 // native debug builds: Android never falls back to a Metro/HTTP audio download.
 const source = Platform.OS === 'android'
   ? { uri: 'file:///android_res/raw/subhan_allah.mp3' }
-  : require('../assets/audio/subhan_allah.mp3');
+  : Platform.OS === 'ios'
+    ? { uri: localClassification?.alertAudioUri ?? '' }
+    : require('../assets/audio/subhan_allah.mp3');
 
 export function useSahwAlertAudio(
   sessionId: number,
