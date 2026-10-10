@@ -16,10 +16,13 @@ with zipfile.ZipFile(args.ipa) as archive:
     assert len(applications) == 1, 'Expected exactly one device app under Payload/'
     app = f'Payload/{applications.pop()}/'
     info = plistlib.loads(archive.read(app + 'Info.plist'))
-    assert info['CFBundleIdentifier'] == 'com.kosaai.salatiq.ioslocal'
+    assert info['CFBundleIdentifier'] == 'com.kosaai.salatiq'
     assert info['DTPlatformName'] == 'iphoneos'
     assert info['CFBundleSupportedPlatforms'] == ['iPhoneOS']
     assert info['CFBundleDisplayName'] == 'صلاتك'
+    assert info['CFBundleName'] == 'Salatiq'
+    assert info['CFBundleExecutable'] == 'Salatiq'
+    assert app == 'Payload/Salatiq.app/'
     assert info['NSCameraUsageDescription']
     binary = archive.read(app + info['CFBundleExecutable'])
     magic, cpu = struct.unpack_from('<II', binary)
@@ -70,5 +73,6 @@ with zipfile.ZipFile(args.ipa) as archive:
     expo = plistlib.loads(archive.read(app + 'Expo.plist'))
     assert expo.get('EXUpdatesEnabled') is False, 'Remote updates must remain disabled'
 print('PASS: real ARM64 iPhone binary, native AVFoundation/Core ML classification, bundled JS/Hermes, model, sound, frameworks and icon/splash; remote updates disabled.')
+print('Identity:', {key: info[key] for key in ('CFBundleDisplayName', 'CFBundleName', 'CFBundleIdentifier', 'CFBundleExecutable')})
 print('Size:', args.ipa.stat().st_size, 'bytes')
 print('SHA-256:', hashlib.sha256(args.ipa.read_bytes()).hexdigest())

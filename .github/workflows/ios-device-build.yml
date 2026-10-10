@@ -180,8 +180,8 @@ jobs:
           trap 'echo "::error::Release bundle/IPA verification failed; see ipa-verification.log"' ERR
           {
             PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/Release-iphoneos"
-            APP="$(find "$PRODUCTS" -maxdepth 1 -type d -name slatk.app -print -quit)"
-            test -n "$APP" && test -d "$APP" || { echo '::error::No real Release-iphoneos/slatk.app produced'; exit 1; }
+            APP="$(find "$PRODUCTS" -maxdepth 1 -type d -name Salatiq.app -print -quit)"
+            test -n "$APP" && test -d "$APP" || { echo '::error::No real Release-iphoneos/Salatiq.app produced'; exit 1; }
             test -s "$SOURCEMAP_FILE" || { echo '::error::Release bundling did not emit a source map'; exit 1; }
             node scripts/verify-ios-bundle.mjs "$SOURCEMAP_FILE"
             python3 scripts/package-ios-ipa.py "$APP" "$BUILD_DIR/artifacts/Salatiq-iOS-test.ipa"
@@ -195,11 +195,11 @@ jobs:
         run: |
           mkdir -p "$BUILD_DIR/artifacts" "$BUILD_DIR/logs"
           trap 'echo "::error::Device app archiving failed; see app-archive.log"' ERR
-          APP="$BUILD_DIR/DerivedData/Build/Products/Release-iphoneos/slatk.app"
+          APP="$BUILD_DIR/DerivedData/Build/Products/Release-iphoneos/Salatiq.app"
           if [[ -d "$APP" ]]; then
             # Direct artifact uploads lose Unix modes. ditto preserves the .app
             # intact inside this zip, including executable modes and symlinks.
-            ditto -c -k --keepParent "$APP" "$BUILD_DIR/artifacts/slatk.app.zip" \
+            ditto -c -k --keepParent "$APP" "$BUILD_DIR/artifacts/Salatiq.app.zip" \
               2>&1 | tee "$BUILD_DIR/logs/app-archive.log"
           else
             echo 'No device .app available; uploading diagnostic logs.' | tee "$BUILD_DIR/logs/app-archive.log"

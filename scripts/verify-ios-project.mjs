@@ -7,7 +7,8 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const plistParser = require('@expo/plist').default;
 const { exp } = require('expo/config').getConfig(process.cwd());
-assert.equal(exp.ios.bundleIdentifier, 'com.kosaai.salatiq.ioslocal');
+assert.equal(exp.ios.bundleIdentifier, 'com.kosaai.salatiq');
+assert.equal(exp.ios.infoPlist.CFBundleName, 'Salatiq');
 assert.equal(exp.name, 'صلاتك');
 assert.equal(exp.ios.supportsTablet, false);
 assert.deepEqual(exp.ios.entitlements, {});
@@ -32,6 +33,7 @@ const appFolder = fs.readdirSync(root).find((name) => fs.existsSync(path.join(ro
 assert(appFolder, 'Generated iOS app folder missing');
 const plist = plistParser.parse(fs.readFileSync(path.join(root, appFolder, 'Info.plist'), 'utf8'));
 assert.equal(plist.CFBundleDisplayName, 'صلاتك');
+assert.equal(plist.CFBundleName, 'Salatiq');
 assert(plist.NSCameraUsageDescription.includes('الأمامية'));
 assert(!plist.NSMicrophoneUsageDescription);
 assert(!plist.UIBackgroundModes);
@@ -42,7 +44,8 @@ const pbx = fs.readFileSync(path.join(root, `${appFolder}.xcodeproj/project.pbxp
 assert.match(pbx, /Bundle React Native code and images/);
 assert.match(pbx, /export:embed/);
 assert.match(pbx, /subhan_allah\.mp3/);
-assert.match(pbx, /com\.kosaai\.salatiq\.ioslocal/);
+assert.deepEqual([...pbx.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = "([^"]+)";/g)].map((match) => match[1]), ['com.kosaai.salatiq', 'com.kosaai.salatiq']);
+assert.deepEqual([...pbx.matchAll(/PRODUCT_NAME = "([^"]+)";/g)].map((match) => match[1]), ['Salatiq', 'Salatiq']);
 const hash = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 assert.equal(hash('assets/audio/subhan_allah.mp3'), hash('سبحان الله (1).mp3'));
 assert.match(pbx, /subhan_allah\.mp3 in Resources/);

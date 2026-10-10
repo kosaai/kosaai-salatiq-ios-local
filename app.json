@@ -61,10 +61,11 @@
     ],
     "ios": {
       "userInterfaceStyle": "automatic",
-      "bundleIdentifier": "com.kosaai.salatiq.ioslocal",
+      "bundleIdentifier": "com.kosaai.salatiq",
       "supportsTablet": false,
       "infoPlist": {
         "CFBundleDisplayName": "صلاتك",
+        "CFBundleName": "Salatiq",
         "NSCameraUsageDescription": "نحتاج إلى الكاميرا الأمامية لمتابعة وضعيات الصلاة محليًا على جهازك دون إرسال الصور.",
         "ITSAppUsesNonExemptEncryption": false
       },

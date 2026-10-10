@@ -15,7 +15,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		13B07F961A680F5B00A75B9A /* slatk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = slatk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		13B07F961A680F5B00A75B9A /* Salatiq.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Salatiq.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = slatk/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = slatk/Info.plist; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = slatk/SplashScreen.storyboard; sourceTree = "<group>"; };
@@ -82,7 +82,7 @@
 		83CBBA001A601CBA00E9B192 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				13B07F961A680F5B00A75B9A /* slatk.app */,
+				13B07F961A680F5B00A75B9A /* Salatiq.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -124,8 +124,8 @@
 			dependencies = (
 			);
 			name = slatk;
-			productName = slatk;
-			productReference = 13B07F961A680F5B00A75B9A /* slatk.app */;
+			productName = Salatiq;
+			productReference = 13B07F961A680F5B00A75B9A /* Salatiq.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -273,8 +273,8 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kosaai.salatiq.ioslocal";
-				PRODUCT_NAME = "slatk";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kosaai.salatiq";
+				PRODUCT_NAME = "Salatiq";
 				SWIFT_OBJC_BRIDGING_HEADER = "slatk/slatk-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -303,8 +303,8 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kosaai.salatiq.ioslocal";
-				PRODUCT_NAME = "slatk";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kosaai.salatiq";
+				PRODUCT_NAME = "Salatiq";
 				SWIFT_OBJC_BRIDGING_HEADER = "slatk/slatk-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
