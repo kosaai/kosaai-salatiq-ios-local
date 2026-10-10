@@ -1,0 +1,218 @@
+name: Salatiq iOS Device Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-device-build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "true"
+      EXPO_NO_DOTENV: "1"
+      BUILD_DIR: ${{ github.workspace }}/validation-output/github-actions
+      XCODE_WORKSPACE: ios/slatk.xcworkspace
+      XCODE_SCHEME: slatk
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select latest installed stable Xcode and print diagnostics
+        run: |
+          mkdir -p "$BUILD_DIR/logs" "$BUILD_DIR/artifacts"
+          trap 'echo "::error::Xcode selection or diagnostics failed; see diagnostics.log"' ERR
+          {
+            sw_vers
+            uname -m
+            # Stable runner installations have numeric version names. Exclude
+            # beta/RC apps and select numerically rather than lexicographically.
+            python3 - <<'PY'
+          import os
+          import plistlib
+          import re
+          from pathlib import Path
+          candidates = []
+          for app in Path('/Applications').glob('Xcode*.app'):
+              app = app.resolve()
+              if not re.fullmatch(r'Xcode(?:_\d+(?:\.\d+){0,2})?\.app', app.name):
+                  continue
+              with (app / 'Contents/Info.plist').open('rb') as file:
+                  version = plistlib.load(file)['CFBundleShortVersionString']
+              if re.fullmatch(r'\d+(?:\.\d+){0,2}', version):
+                  key = tuple(int(part) for part in version.split('.'))
+                  candidates.append((key + (0,) * (3 - len(key)), str(app.resolve())))
+          if not candidates:
+              raise SystemExit('No stable Xcode installation found on the macOS runner')
+          version, app = max(candidates)
+          if version < (26, 4, 0):
+              raise SystemExit(f'Expo SDK 57 requires Xcode 26.4+: runner only has {version}')
+          developer = app + '/Contents/Developer'
+          with open(os.environ['GITHUB_ENV'], 'a') as file:
+              file.write(f'DEVELOPER_DIR={developer}\n')
+          Path(os.environ['BUILD_DIR'], 'developer-dir.txt').write_text(developer)
+          print(f'Selected stable Xcode {version}: {developer}')
+          PY
+            export DEVELOPER_DIR="$(cat "$BUILD_DIR/developer-dir.txt")"
+            sudo xcode-select --switch "$DEVELOPER_DIR"
+            xcodebuild -version
+            xcodebuild -showsdks
+            xcrun --sdk iphoneos --show-sdk-path
+            pod --version
+            python3 --version
+          } 2>&1 | tee "$BUILD_DIR/logs/diagnostics.log"
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install JavaScript dependencies
+        run: |
+          trap 'echo "::error::npm ci failed; see npm-ci.log"' ERR
+          {
+            node --version
+            npm --version
+            npm ci --include=dev
+          } 2>&1 | tee "$BUILD_DIR/logs/npm-ci.log"
+
+      - name: Verify checked-in native sources and Core ML resources
+        run: |
+          trap 'echo "::error::Native project/model verification failed; see native-verification.log"' ERR
+          {
+            # Preserve the custom native project: no Expo prebuild/ios:prepare.
+            for file in \
+              ios/Podfile \
+              ios/.xcode.env \
+              ios/slatk/AppDelegate.swift \
+              ios/slatk/Info.plist \
+              ios/slatk/slatk.entitlements \
+              ios/slatk/SplashScreen.storyboard \
+              ios/slatk/Supporting/Expo.plist \
+              ios/slatk/Images.xcassets/AppIcon.appiconset/Contents.json \
+              ios/slatk.xcodeproj/project.pbxproj \
+              ios/slatk.xcodeproj/xcshareddata/xcschemes/slatk.xcscheme \
+              modules/local-classification/expo-module.config.json \
+              modules/local-classification/ios/LocalClassification.podspec \
+              modules/local-classification/ios/LocalClassificationModule.swift \
+              modules/local-classification/ios/LocalClassificationView.swift \
+              modules/local-classification/ios/PoseClassifier.swift \
+              modules/local-classification/ios/RgbPreprocessor.swift \
+              modules/local-classification/ios/RgbResize.swift \
+              modules/local-classification/ios/Resources/model-contract.json \
+              modules/local-classification/ios/Resources/best.mlpackage/Manifest.json \
+              modules/local-classification/ios/Resources/best.mlpackage/Data/com.apple.CoreML/model.mlmodel \
+              modules/local-classification/ios/Resources/best.mlpackage/Data/com.apple.CoreML/weights/weight.bin \
+              assets/audio/subhan_allah.mp3 \
+              scripts/package-ios-ipa.py \
+              scripts/verify-ios-ipa.py \
+              scripts/verify-ios-bundle.mjs \
+              scripts/test-coreml-smoke.swift \
+              docs/COREML_SMOKE_REFERENCE.json; do
+              test -s "$file" || { echo "::error::Missing or empty required file: $file"; exit 1; }
+            done
+            npm run ios:verify
+          } 2>&1 | tee "$BUILD_DIR/logs/native-verification.log"
+
+      - name: TypeScript and lint
+        run: |
+          trap 'echo "::error::TypeScript/lint failed; see project-checks.log"' ERR
+          {
+            npm run typecheck
+            npm run lint
+          } 2>&1 | tee "$BUILD_DIR/logs/project-checks.log"
+
+      - name: Install CocoaPods and verify workspace/module registration
+        run: |
+          trap 'echo "::error::CocoaPods/workspace/module registration failed; see pod-install.log"' ERR
+          {
+            cd ios
+            pod install
+            test -s slatk.xcworkspace/contents.xcworkspacedata
+            grep -q LocalClassification Podfile.lock
+            test -s 'Pods/Local Podspecs/LocalClassification.podspec.json'
+            # The local Swift module must be registered in Expo's generated provider.
+            grep -R -q 'LocalClassificationModule.self' 'Pods/Target Support Files'
+            xcodebuild -list -workspace slatk.xcworkspace
+          } 2>&1 | tee "$BUILD_DIR/logs/pod-install.log"
+
+      - name: Apple Core ML compile, load and inference smoke test
+        run: |
+          trap 'echo "::error::Apple Core ML runtime/reference comparison failed; see coreml-smoke.log"' ERR
+          xcrun swift scripts/test-coreml-smoke.swift \
+            modules/local-classification/ios/Resources/best.mlpackage \
+            docs/COREML_SMOKE_REFERENCE.json \
+            2>&1 | tee "$BUILD_DIR/logs/coreml-smoke.log"
+
+      - name: Build unsigned Release for real ARM64 iPhone
+        run: |
+          trap 'echo "::error::iPhone Release build or JS/Hermes bundling failed; see xcodebuild.log"' ERR
+          export NODE_ENV=production
+          export NODE_BINARY="$(command -v node)"
+          export FORCE_BUNDLING=1
+          export SOURCEMAP_FILE="$BUILD_DIR/logs/main.jsbundle.map"
+          unset SKIP_BUNDLING EXPO_PUBLIC_API_URL
+          # The existing export:embed build phase bundles JS/Hermes and assets.
+          # No developer certificates, provisioning profiles or App Store export.
+          xcodebuild \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$BUILD_DIR/DerivedData" \
+            -resultBundlePath "$BUILD_DIR/device-build.xcresult" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            build 2>&1 | tee "$BUILD_DIR/logs/xcodebuild.log"
+
+      - name: Verify actual Release bundle, package IPA and inspect device resources
+        run: |
+          trap 'echo "::error::Release bundle/IPA verification failed; see ipa-verification.log"' ERR
+          {
+            PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/Release-iphoneos"
+            APP="$(find "$PRODUCTS" -maxdepth 1 -type d -name slatk.app -print -quit)"
+            test -n "$APP" && test -d "$APP" || { echo '::error::No real Release-iphoneos/slatk.app produced'; exit 1; }
+            test -s "$SOURCEMAP_FILE" || { echo '::error::Release bundling did not emit a source map'; exit 1; }
+            node scripts/verify-ios-bundle.mjs "$SOURCEMAP_FILE"
+            python3 scripts/package-ios-ipa.py "$APP" "$BUILD_DIR/artifacts/Salatiq-iOS-test.ipa"
+            python3 scripts/verify-ios-ipa.py "$BUILD_DIR/artifacts/Salatiq-iOS-test.ipa"
+          } 2>&1 | tee "$BUILD_DIR/logs/ipa-verification.log"
+        env:
+          SOURCEMAP_FILE: ${{ env.BUILD_DIR }}/logs/main.jsbundle.map
+
+      - name: Preserve built device app with permissions and symlinks
+        if: always()
+        run: |
+          mkdir -p "$BUILD_DIR/artifacts" "$BUILD_DIR/logs"
+          trap 'echo "::error::Device app archiving failed; see app-archive.log"' ERR
+          APP="$BUILD_DIR/DerivedData/Build/Products/Release-iphoneos/slatk.app"
+          if [[ -d "$APP" ]]; then
+            # Direct artifact uploads lose Unix modes. ditto preserves the .app
+            # intact inside this zip, including executable modes and symlinks.
+            ditto -c -k --keepParent "$APP" "$BUILD_DIR/artifacts/slatk.app.zip" \
+              2>&1 | tee "$BUILD_DIR/logs/app-archive.log"
+          else
+            echo 'No device .app available; uploading diagnostic logs.' | tee "$BUILD_DIR/logs/app-archive.log"
+          fi
+
+      - name: Upload device IPA, archived app and diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Salatiq-iOS-Device-Build
+          path: |
+            ${{ env.BUILD_DIR }}/artifacts/
+            ${{ env.BUILD_DIR }}/logs/
+            ${{ env.BUILD_DIR }}/device-build.xcresult/
+          if-no-files-found: warn
+          compression-level: 0

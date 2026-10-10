@@ -12,7 +12,9 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parent.parent
 with zipfile.ZipFile(args.ipa) as archive:
     names = archive.namelist()
-    app = 'Payload/Salatiq.app/'
+    applications = {n.split('/')[1] for n in names if n.startswith('Payload/') and len(n.split('/')) > 2 and n.split('/')[1].endswith('.app')}
+    assert len(applications) == 1, 'Expected exactly one device app under Payload/'
+    app = f'Payload/{applications.pop()}/'
     info = plistlib.loads(archive.read(app + 'Info.plist'))
     assert info['CFBundleIdentifier'] == 'com.kosaai.salatiq.ioslocal'
     assert info['DTPlatformName'] == 'iphoneos'
@@ -39,6 +41,10 @@ with zipfile.ZipFile(args.ipa) as archive:
             dynamic_libraries.append(name)
         offset += size
     assert device, 'No iOS device platform command'
+    for symbol in (b'LocalClassificationModule', b'LocalClassificationView', b'PoseClassifier'):
+        assert symbol in binary, f'Native local classification implementation missing: {symbol.decode()}'
+    for framework in ('AVFoundation.framework/', 'CoreML.framework/'):
+        assert any(framework in library for library in dynamic_libraries), f'Missing native dependency: {framework}'
     js = archive.read(app + 'main.jsbundle')
     assert len(js) > 100_000
     assert any('/best.mlmodelc/' in n for n in names), 'Compiled Core ML model missing'
@@ -60,6 +66,9 @@ with zipfile.ZipFile(args.ipa) as archive:
     assert any(n.endswith('/Assets.car') for n in names)
     assert any('SplashScreen' in n for n in names)
     assert not info.get('UIBackgroundModes')
-print('PASS: real ARM64 iPhone binary, bundled JS/Hermes, model, sound, native frameworks and icon/splash.')
+    assert app + 'ip.txt' not in names, 'Debug Metro host file must not be bundled'
+    expo = plistlib.loads(archive.read(app + 'Expo.plist'))
+    assert expo.get('EXUpdatesEnabled') is False, 'Remote updates must remain disabled'
+print('PASS: real ARM64 iPhone binary, native AVFoundation/Core ML classification, bundled JS/Hermes, model, sound, frameworks and icon/splash; remote updates disabled.')
 print('Size:', args.ipa.stat().st_size, 'bytes')
 print('SHA-256:', hashlib.sha256(args.ipa.read_bytes()).hexdigest())

@@ -1,4 +1,4 @@
-"""Package only a verified iPhone DEVICE application as Payload/Salatiq.app."""
+"""Package only a verified iPhone DEVICE application, preserving its app name."""
 import argparse
 import os
 import plistlib
@@ -23,7 +23,7 @@ args.output.parent.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(dir=args.output.parent, prefix='salatiq-ipa-') as temporary:
     payload = Path(temporary) / 'Payload'
     payload.mkdir()
-    shutil.copytree(args.app, payload / 'Salatiq.app', symlinks=True)
+    shutil.copytree(args.app, payload / args.app.name, symlinks=True)
     # ditto preserves Mach-O framework symlinks and executable permissions.
     archive = Path(temporary) / 'Salatiq.ipa'
     subprocess.run(['ditto', '-c', '-k', '--keepParent', str(payload), str(archive)], check=True)
