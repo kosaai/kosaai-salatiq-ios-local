@@ -1,0 +1,114 @@
+workflows:
+  salatiq-ios-device:
+    name: Salatiq iOS Device Build
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      node: "22"
+      cocoapods: default
+      vars:
+        CI: "true"
+        EXPO_NO_DOTENV: "1"
+        XCODE_WORKSPACE: ios/slatk.xcworkspace
+        XCODE_SCHEME: slatk
+    scripts:
+      - name: Verify existing native sources and bundled Core ML model
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          # Use the checked-in native project; never invoke Expo prebuild here.
+          for file in \
+            ios/Podfile \
+            ios/slatk/AppDelegate.swift \
+            ios/slatk/Info.plist \
+            ios/slatk.xcodeproj/project.pbxproj \
+            ios/slatk.xcodeproj/xcshareddata/xcschemes/slatk.xcscheme \
+            modules/local-classification/expo-module.config.json \
+            modules/local-classification/ios/LocalClassification.podspec \
+            modules/local-classification/ios/LocalClassificationModule.swift \
+            modules/local-classification/ios/LocalClassificationView.swift \
+            modules/local-classification/ios/PoseClassifier.swift \
+            modules/local-classification/ios/RgbPreprocessor.swift \
+            modules/local-classification/ios/RgbResize.swift \
+            modules/local-classification/ios/Resources/model-contract.json \
+            modules/local-classification/ios/Resources/best.mlpackage/Manifest.json \
+            modules/local-classification/ios/Resources/best.mlpackage/Data/com.apple.CoreML/model.mlmodel \
+            modules/local-classification/ios/Resources/best.mlpackage/Data/com.apple.CoreML/weights/weight.bin \
+            assets/audio/subhan_allah.mp3; do
+            test -s "$file" || { echo "Missing or empty required file: $file" >&2; exit 1; }
+          done
+          mkdir -p validation-output/codemagic
+
+      - name: Install JavaScript dependencies
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          npm ci --include=dev
+
+      - name: TypeScript, lint and native project checks
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm run ios:verify
+
+      - name: Install CocoaPods in the existing iOS project
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd ios
+          pod install 2>&1 | tee ../validation-output/codemagic/pod-install.log
+          test -d slatk.xcworkspace
+          grep -q LocalClassification Podfile.lock
+
+      - name: Verify Core ML with the Apple runtime
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          xcrun swift scripts/test-coreml-smoke.swift \
+            modules/local-classification/ios/Resources/best.mlpackage \
+            docs/COREML_SMOKE_REFERENCE.json \
+            2>&1 | tee validation-output/codemagic/coreml-smoke.log
+
+      - name: Build unsigned ARM64 iPhone Release app
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export NODE_ENV=production
+          export NODE_BINARY="$(command -v node)"
+          export FORCE_BUNDLING=1
+          unset SKIP_BUNDLING EXPO_PUBLIC_API_URL
+          # No signing credentials are required. SideStore/SideInstaller must
+          # re-sign the resulting device IPA before it can be installed.
+          # The existing Release build phase embeds JS/Hermes and local assets.
+          xcodebuild \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/validation-output/ios-device" \
+            -resultBundlePath "$CM_BUILD_DIR/validation-output/codemagic/device-build.xcresult" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            build 2>&1 | tee validation-output/codemagic/xcodebuild.log
+
+      - name: Package and inspect the re-signable device IPA
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          APP="$CM_BUILD_DIR/validation-output/ios-device/Build/Products/Release-iphoneos/slatk.app"
+          IPA="$CM_BUILD_DIR/validation-output/codemagic/Salatiq-iOS-test.ipa"
+          test -d "$APP" || { echo 'No iPhone device .app was produced' >&2; exit 1; }
+          # Validates device platform, ARM64, embedded JS, compiled Core ML and
+          # sound before packaging the real app as Payload/Salatiq.app.
+          python3 scripts/package-ios-ipa.py "$APP" "$IPA"
+          python3 scripts/verify-ios-ipa.py "$IPA" \
+            2>&1 | tee validation-output/codemagic/ipa-verification.log
+    artifacts:
+      - "**/*.ipa"
+      - validation-output/ios-device/Build/Products/Release-iphoneos/*.app
+      - validation-output/codemagic/*.log
+      - validation-output/codemagic/*.xcresult
