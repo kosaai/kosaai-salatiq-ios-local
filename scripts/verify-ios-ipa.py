@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import plistlib
+import re
 import struct
 import zipfile
 from pathlib import Path
@@ -19,10 +20,19 @@ with zipfile.ZipFile(args.ipa) as archive:
     assert info['CFBundleIdentifier'] == 'com.kosaai.salatiq'
     assert info['DTPlatformName'] == 'iphoneos'
     assert info['CFBundleSupportedPlatforms'] == ['iPhoneOS']
-    assert info['CFBundleDisplayName'] == 'صلاتك'
+    assert info['CFBundleDisplayName'] == 'Salatiq'
     assert info['CFBundleName'] == 'Salatiq'
     assert info['CFBundleExecutable'] == 'Salatiq'
     assert app == 'Payload/Salatiq.app/'
+    localized_data = archive.read(app + 'ar.lproj/InfoPlist.strings')
+    # Xcode can compile .strings into binary plists or retain UTF-8/UTF-16 text.
+    if localized_data.startswith((b'bplist00', b'<?xml')):
+        localized = plistlib.loads(localized_data)
+        assert localized['CFBundleDisplayName'] == 'صلاتك'
+    else:
+        encoding = 'utf-16' if localized_data.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
+        localized_text = localized_data.decode(encoding)
+        assert re.fullmatch(r'\s*"CFBundleDisplayName"\s*=\s*"صلاتك"\s*;\s*', localized_text), 'Arabic Home Screen name missing or incorrect'
     assert info['NSCameraUsageDescription']
     binary = archive.read(app + info['CFBundleExecutable'])
     magic, cpu = struct.unpack_from('<II', binary)
@@ -74,5 +84,6 @@ with zipfile.ZipFile(args.ipa) as archive:
     assert expo.get('EXUpdatesEnabled') is False, 'Remote updates must remain disabled'
 print('PASS: real ARM64 iPhone binary, native AVFoundation/Core ML classification, bundled JS/Hermes, model, sound, frameworks and icon/splash; remote updates disabled.')
 print('Identity:', {key: info[key] for key in ('CFBundleDisplayName', 'CFBundleName', 'CFBundleIdentifier', 'CFBundleExecutable')})
+print('Arabic localized display name: صلاتك')
 print('Size:', args.ipa.stat().st_size, 'bytes')
 print('SHA-256:', hashlib.sha256(args.ipa.read_bytes()).hexdigest())
