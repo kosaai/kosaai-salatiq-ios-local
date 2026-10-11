@@ -56,7 +56,9 @@ export function PrayerOverviewCard({ prayer, state, isDarkMode }: PrayerOverview
         <View style={styles.privacyLine}>
           <FontAwesomeIcon name="lock" size={15} color={theme.brassSoft} />
           <Text style={[styles.statusPrivacy, { color: theme.muted }]}>
-            {Platform.OS === 'android'
+            {Platform.OS === 'ios'
+              ? 'تتم معالجة صور الكاميرا محلياً'
+              : Platform.OS === 'android'
               ? 'تتم المعالجة بأمان على جهازك'
               : 'تتم معالجة صور الكاميرا عبر الخادم'}
           </Text>
@@ -68,6 +70,7 @@ export function PrayerOverviewCard({ prayer, state, isDarkMode }: PrayerOverview
 
 const styles = StyleSheet.create({
   card: {
+    ...(Platform.OS === 'ios' ? { direction: 'rtl' as const } : {}),
     minHeight: 88,
     marginBottom: 22,
     paddingVertical: 16,
@@ -75,7 +78,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.line,
-    flexDirection: 'row-reverse',
+    flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse',
     alignItems: 'center',
   },
   column: {
@@ -86,21 +89,21 @@ const styles = StyleSheet.create({
   label: {
     color: colors.muted,
     fontSize: 10.5,
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
   },
   prayerName: {
     color: colors.ivory,
     fontSize: 14,
     fontWeight: '700',
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
     marginTop: 4,
   },
   detail: {
     color: colors.brassSoft,
     fontSize: 11.5,
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
     marginTop: 3,
   },
@@ -122,7 +125,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   progressDots: {
-    flexDirection: 'row-reverse',
+    flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse',
     alignItems: 'center',
     gap: 6,
     marginTop: 11,
@@ -143,7 +146,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   privacyLine: {
-    flexDirection: 'row-reverse',
+    flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse',
     alignItems: 'center',
     gap: 6,
   },
@@ -151,7 +154,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 11.5,
     flexShrink: 1,
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
   },
 });

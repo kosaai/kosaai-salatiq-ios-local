@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import {
   Pressable,
   Image,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -118,6 +119,7 @@ export function HomeScreen() {
             onPoseDetected={(pose, confidence) => applyEngineEvent({ state: { currentPose: pose, confidence } })}
             onStartNewPrayerSession={startNewPrayerSession}
             sessionId={sessionId}
+            prayerState={prayerState}
             preSujudTransitionStartedAt={prayerState.preSujudTransitionStartedAt}
             postSujudTransitionStartedAt={prayerState.postSujudTransitionStartedAt}
             firstTashahhudStartedAt={prayerState.firstTashahhudStartedAt}
@@ -138,16 +140,17 @@ export function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  // Use one RTL layout direction on iOS; row-reverse would mirror it twice.
+  flex: { flex: 1, ...(Platform.OS === 'ios' ? { direction: 'rtl' as const } : {}) },
   content: { width: '100%', maxWidth: 460, alignSelf: 'center', paddingTop: 14, paddingBottom: 48 },
-  themeHeader: { width: '100%', marginBottom: 10, minHeight: 54, paddingHorizontal: 4, flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between', overflow: 'visible' },
+  themeHeader: { width: '100%', marginBottom: 10, minHeight: 54, paddingHorizontal: 4, flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', alignItems: 'center', justifyContent: 'space-between', overflow: 'visible' },
   brandLogo: { width: 108, height: 54, flexShrink: 0 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 },
   themeButton: { width: 38, height: 38, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
   menuButton: { width: 38, height: 38, minWidth: 44, minHeight: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
   selector: { marginBottom: 22, padding: 16, borderRadius: 18, borderWidth: 1 },
   selectorTitle: { color: colors.muted, fontSize: 12, textAlign: 'center', writingDirection: 'rtl', marginBottom: 12 },
-  prayerGrid: { flexDirection: 'row-reverse', justifyContent: 'space-between', gap: 7 },
+  prayerGrid: { flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', justifyContent: 'space-between', gap: 7 },
   prayerOption: { minHeight: 42, paddingHorizontal: 2, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   prayerText: { fontSize: 11.5, writingDirection: 'rtl' },
   prayerTextSelected: { fontWeight: '700' },

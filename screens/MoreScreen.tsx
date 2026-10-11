@@ -3,7 +3,7 @@ import { PageShell } from '../components/PageShell';
 import { colors, lightColors } from '../constants/theme';
 import { themeParam, usePageTheme } from '../hooks/usePageTheme';
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 type MoreRoute = '/about' | '/privacy' | '/usage' | '/disclaimer' | '/licenses';
 
@@ -46,7 +46,7 @@ export function MoreScreen() {
 const styles = StyleSheet.create({
   list: { gap: 10 },
   row: {
-    flexDirection: 'row-reverse',
+    flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse',
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 56,
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     color: colors.ivory,
     fontSize: 14.5,
     flexShrink: 1,
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
   },
   pressed: { opacity: 0.8 },

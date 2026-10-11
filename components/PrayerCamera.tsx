@@ -13,8 +13,9 @@ import {
 } from 'react-native';
 import { colors, lightColors } from '../constants/theme';
 import { canStartLocalPrayer } from '../services/localReadiness';
+import { isAwaitingItidal } from '../services/prayerEngine';
 import { predictImage, type PredictionPose, type PredictionResponse } from '../services/predictionApi';
-import type { CameraStatus, EngineStatus } from '../types/prayer';
+import type { CameraStatus, EngineStatus, PrayerState } from '../types/prayer';
 import { FontAwesomeIcon } from './FontAwesomeIcon';
 import { LocalClassificationCamera } from './LocalClassificationCamera';
 
@@ -25,6 +26,7 @@ type PrayerCameraProps = {
   onPoseDetected: (pose: PredictionPose, confidence: number) => void;
   onStartNewPrayerSession: () => void;
   sessionId: number;
+  prayerState: PrayerState;
   preSujudTransitionStartedAt: number | null;
   postSujudTransitionStartedAt: number | null;
   firstTashahhudStartedAt: number | null;
@@ -42,6 +44,8 @@ type PoseCandidate = {
 };
 
 const POSE_STABILITY_MS = 1_000;
+// Three standing observations at the native 250ms cadence span at least 500ms.
+const ITIDAL_MIN_EVIDENCE_MS = 500;
 const LIVE_NEXT_CAPTURE_DELAY_MS = 0;
 const MAX_UPLOAD_WIDTH = 640;
 const WEB_FRAME_WIDTH = 384;
@@ -143,6 +147,7 @@ export function PrayerCamera({
   onPoseDetected,
   onStartNewPrayerSession,
   sessionId,
+  prayerState,
   preSujudTransitionStartedAt,
   postSujudTransitionStartedAt,
   firstTashahhudStartedAt,
@@ -158,6 +163,8 @@ export function PrayerCamera({
   const lastLivePoseRef = useRef<PredictionPose | null>(null);
   const lastReceivedPoseRef = useRef<string | null>(null);
   const poseCandidateRef = useRef<PoseCandidate | null>(null);
+  const awaitingItidalRef = useRef(false);
+  const itidalEvidenceRef = useRef<{ pose: PredictionPose; at: number }[]>([]);
   const lastLiveSkipLogRef = useRef(0);
   const onPoseDetectedRef = useRef(onPoseDetected);
   const cameraActiveRef = useRef(false);
@@ -203,8 +210,18 @@ export function PrayerCamera({
     onPoseDetectedRef.current = onPoseDetected;
   }, [onPoseDetected]);
 
-  // Shared by remote Web results and native Android results. Preserve the
-  // result-driven 1-second filter and lastLivePoseRef duplicate protection.
+  useEffect(() => {
+    const awaitingItidal = Platform.OS === 'ios' && localInferenceEnabled &&
+      isAwaitingItidal(prayerState);
+    if ((awaitingItidalRef.current || awaitingItidal) && lastLivePoseRef.current === 'BOWING' &&
+        poseCandidateRef.current?.pose === 'STANDING') poseCandidateRef.current = null;
+    awaitingItidalRef.current = awaitingItidal;
+    // Never carry rising evidence through a state update, restart or stopped loop.
+    itidalEvidenceRef.current = [];
+  }, [prayerState, sessionId, localInferenceEnabled]);
+
+  // General recognition keeps the result-driven 1-second filter. Only an iOS
+  // Ruku already confirmed by the engine may use the contextual rising window.
   const receivePrediction = useCallback((result: PredictionResponse) => {
     const pose = result.pose;
     if (pose !== lastReceivedPoseRef.current) {
@@ -214,8 +231,38 @@ export function PrayerCamera({
 
     if (!isDetectedPrayerPose(pose)) {
       poseCandidateRef.current = null;
+      itidalEvidenceRef.current = [];
     } else {
       const now = Date.now();
+      if (awaitingItidalRef.current && lastLivePoseRef.current === 'BOWING') {
+        let evidence = itidalEvidenceRef.current;
+        const last = evidence[evidence.length - 1];
+        if (last && (now <= last.at || now - last.at >= POSE_STABILITY_MS)) {
+          evidence = [];
+          if (poseCandidateRef.current?.pose === 'STANDING') poseCandidateRef.current = null;
+        }
+        if (pose !== 'STANDING' && pose !== 'BOWING') {
+          evidence = [];
+        } else if (pose === 'BOWING' && (!evidence.length || evidence[evidence.length - 1].pose === 'BOWING')) {
+          evidence = []; // Two consecutive Ruku results end the rising attempt.
+        } else {
+          evidence = [...evidence, { pose, at: now }].slice(-4);
+        }
+        itidalEvidenceRef.current = evidence;
+        const standing = evidence.filter((item) => item.pose === 'STANDING');
+        if (pose === 'STANDING' && standing.length >= 3 && now - standing[0].at >= ITIDAL_MIN_EVIDENCE_MS) {
+          // Feed generic STANDING through the existing contextual state machine.
+          // Synchronize duplicate/general-filter state on this same observation.
+          itidalEvidenceRef.current = [];
+          poseCandidateRef.current = { pose, startedAt: now };
+          lastLivePoseRef.current = pose;
+          onPoseDetectedRef.current(pose, result.confidence);
+          logLive(`pose: ${pose}`);
+          return;
+        }
+      } else {
+        itidalEvidenceRef.current = [];
+      }
       const candidate = poseCandidateRef.current;
 
       if (!candidate || candidate.pose !== pose) {
@@ -286,6 +333,7 @@ export function PrayerCamera({
     liveRequestControllerRef.current?.abort();
     liveRequestControllerRef.current = null;
     poseCandidateRef.current = null;
+    itidalEvidenceRef.current = [];
 
     if (wasActive) {
       logLive('stopped');
@@ -299,6 +347,7 @@ export function PrayerCamera({
       setIsForeground(state === 'active');
       // Background time is never evidence of observed pose stability.
       poseCandidateRef.current = null;
+      itidalEvidenceRef.current = [];
       if (Platform.OS === 'ios' && state !== 'active') {
         cameraReadyRef.current = false;
         setIsCameraReady(false);
@@ -391,6 +440,7 @@ export function PrayerCamera({
     lastLivePoseRef.current = null;
     lastReceivedPoseRef.current = null;
     poseCandidateRef.current = null;
+    itidalEvidenceRef.current = [];
     clearCountdownTimer();
     stopLiveLoop();
   }, [clearCountdownTimer, sessionId, stopLiveLoop]);
@@ -600,13 +650,14 @@ export function PrayerCamera({
     cameraReadyRef.current = false;
     setIsCameraReady(false);
     poseCandidateRef.current = null;
+    itidalEvidenceRef.current = [];
     clearCountdownTimer();
     setCountdown(null);
     onStatusChange('STARTING');
   };
 
   return (
-    <View>
+    <View style={styles.container}>
       <LinearGradient
         colors={['rgba(201, 147, 46, 0.36)', 'rgba(201, 147, 46, 0)']}
         style={styles.frame}
@@ -764,6 +815,7 @@ export function PrayerCamera({
 }
 
 const styles = StyleSheet.create({
+  container: { ...(Platform.OS === 'ios' ? { direction: 'rtl' as const } : {}) },
   frame: {
     borderRadius: 150,
     padding: 1,
@@ -801,7 +853,7 @@ const styles = StyleSheet.create({
     borderRadius: 99,
   },
   engineDot: { height: 7, width: 7, borderRadius: 4 },
-  statusText: { color: colors.ivory, fontSize: 12 },
+  statusText: { color: colors.ivory, fontSize: 12, ...(Platform.OS === 'ios' ? { textAlign: 'auto' as const, writingDirection: 'rtl' as const } : {}) },
   countdownOverlay: {
     position: 'absolute',
     alignSelf: 'center',
@@ -835,7 +887,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  firstTashahhudReminderText: { fontSize: 13.5, fontWeight: '700', lineHeight: 22, textAlign: 'right', writingDirection: 'rtl' },
+  firstTashahhudReminderText: { fontSize: 13.5, fontWeight: '700', lineHeight: 22, textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl' },
   flipButton: {
     position: 'absolute',
     left: 14,
@@ -881,7 +933,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
-  errorText: { color: '#FFFFFF', fontSize: 13, textAlign: 'right', writingDirection: 'rtl', lineHeight: 20 },
+  errorText: { color: '#FFFFFF', fontSize: 13, textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl', lineHeight: 20 },
   retryButton: { alignSelf: 'flex-start', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 7 },
   retryText: { color: '#FFFFFF', fontSize: 12 },
 });

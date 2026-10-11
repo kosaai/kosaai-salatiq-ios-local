@@ -476,6 +476,21 @@ function getValidatorSequence(prayer: PrayerType) {
   return null;
 }
 
+/** Read-only eligibility for the iOS rising evidence filter, not a stage advance. */
+export function isAwaitingItidal(state: PrayerState): boolean {
+  if (state.prayerStage !== 'BOWING' || !state.sequence.pendingBowing ||
+      state.sequence.rukuDone || state.activeSahwEvent || state.prayerCompleted) return false;
+
+  const sequence = getValidatorSequence(state.prayerType);
+  const expected = sequence?.[state.expectedIndex];
+  // Fajr deliberately validates its already-observed Ruku when standing arrives.
+  // Its next semantic stage is I'tidal even though expectedIndex still names Ruku.
+  const next = state.prayerType === 'FAJR' && expected?.stage === 'BOWING'
+    ? sequence?.[state.expectedIndex + 1]
+    : expected;
+  return next?.stage === 'ITIDAL' && next.rakah === state.currentRakah;
+}
+
 /** True only while the final tashahhud is the active, already validated stage. */
 function isAtFinalTashahhud(state: PrayerState) {
   const finalStage = getFinalTashahhudStage(state.prayerType);

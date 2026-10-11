@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 
@@ -8,6 +9,15 @@ function transpile(file) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
 }
+function loadLogic(file) {
+  const exports = {};
+  vm.runInNewContext(transpile(file), {
+    exports,
+    require: (name) => loadLogic(path.normalize(path.join(path.dirname(file), `${name}.ts`))),
+  });
+  return exports;
+}
+const engine = loadLogic('services/prayerEngine.ts');
 const readiness = {};
 vm.runInNewContext(transpile('services/localReadiness.ts'), { exports: readiness });
 const ready = { permissionGranted: true, cameraReady: true, cameraActive: true, foreground: true, engineStatus: 'connected', prayerStarted: false, countdown: null, pendingSession: null };
@@ -37,6 +47,7 @@ async function main() {
   const jsx = (type, props) => ({ type, props });
   const props = {
     engineStatus: 'error', sessionId: 0, isDarkMode: false,
+    prayerState: engine.createInitialPrayerState('FAJR'),
     preSujudTransitionStartedAt: null, postSujudTransitionStartedAt: null, firstTashahhudStartedAt: null,
     onStatusChange() {}, onCheckEngine: async () => 'error',
     onPoseDetected: (...args) => predictions.push(args), onStartNewPrayerSession() {},
@@ -62,6 +73,7 @@ async function main() {
       if (name === 'expo-linear-gradient') return { LinearGradient: 'Gradient' };
       if (name === '../constants/theme') return { colors: {}, lightColors: {} };
       if (name === '../services/localReadiness') return readiness;
+      if (name === '../services/prayerEngine') return engine;
       if (name === '../services/predictionApi') return { predictImage() { throw new Error('Network/image inference must never run on iOS'); } };
       if (name === './FontAwesomeIcon') return { FontAwesomeIcon: 'Icon' };
       if (name === './LocalClassificationCamera') return { LocalClassificationCamera: 'NativeFrontCamera' };

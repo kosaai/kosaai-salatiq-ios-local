@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../constants/theme';
 import type { SahwAlert as SahwAlertData } from '../types/prayer';
 
@@ -17,7 +17,7 @@ export function SahwAlert({ alert }: SahwAlertProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { marginTop: 14, flexDirection: 'row-reverse', gap: 9, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,147,46,0.22)', backgroundColor: 'rgba(201,147,46,0.10)', padding: 12 },
+  container: { ...(Platform.OS === 'ios' ? { direction: 'rtl' as const } : {}), marginTop: 14, flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', gap: 9, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,147,46,0.22)', backgroundColor: 'rgba(201,147,46,0.10)', padding: 12 },
   icon: { color: colors.brassSoft, fontSize: 16 },
-  text: { flex: 1, color: colors.brassSoft, fontSize: 13, textAlign: 'right', writingDirection: 'rtl', lineHeight: 21 },
+  text: { flex: 1, color: colors.brassSoft, fontSize: 13, textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl', lineHeight: 21 },
 });

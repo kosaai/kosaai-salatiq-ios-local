@@ -70,9 +70,9 @@ export function AboutSalatiqScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'flex-start', gap: 12, width: '100%', minHeight: 48, zIndex: 1 },
+  headerRow: { flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', alignItems: 'center', justifyContent: 'flex-start', gap: 12, width: '100%', minHeight: 48, zIndex: 1 },
   backButton: { width: 44, height: 44, minWidth: 44, minHeight: 44, flexShrink: 0, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontFamily: arabicFont, fontSize: 28, lineHeight: 40, fontWeight: '600', textAlign: 'right', writingDirection: 'rtl', flexShrink: 1 },
+  title: { fontFamily: arabicFont, fontSize: 28, lineHeight: 40, fontWeight: '600', textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl', flexShrink: 1 },
   heroLogo: { width: 150, height: 150, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
   paragraphs: { gap: 20 },
   paragraph: {
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
     fontFamily: arabicFont,
     fontSize: 16,
     lineHeight: 30,
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
   },
 });

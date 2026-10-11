@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { type ReactNode } from 'react';
 import {
   Image,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -112,7 +113,7 @@ export function PageShell({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  flex: { flex: 1, ...(Platform.OS === 'ios' ? { direction: 'rtl' as const } : {}) },
   content: { width: '100%', maxWidth: 460, alignSelf: 'center', paddingTop: 14, paddingBottom: 48 },
   // The header itself is a stacking context (position: relative + zIndex: 0),
   // so the watermark's negative zIndex keeps it behind the title, back button
@@ -130,7 +131,7 @@ const styles = StyleSheet.create({
   },
   watermarkImage: { width: '100%', height: '100%' },
   backButton: {
-    alignSelf: 'flex-end',
+    alignSelf: Platform.OS === 'ios' ? 'flex-start' : 'flex-end',
     width: 42,
     height: 42,
     borderRadius: 21,
@@ -143,7 +144,7 @@ const styles = StyleSheet.create({
     color: colors.ivory,
     fontSize: 27,
     fontWeight: '700',
-    textAlign: 'right',
+    textAlign: Platform.OS === 'ios' ? 'auto' : 'right',
     writingDirection: 'rtl',
     marginTop: 12,
   },

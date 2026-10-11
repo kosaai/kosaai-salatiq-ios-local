@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { createPrayerTimeline, getActivePrayerTimelineNodeId } from '../constants/prayerTimeline';
 import { fajrSequence } from '../constants/fajrSequence';
@@ -7,6 +7,7 @@ import { fourRakahSequence } from '../constants/fourRakahSequence';
 import { colors, lightColors } from '../constants/theme';
 import type { EngineStatus, PrayerPose, PrayerStage, PrayerState, PrayerType } from '../types/prayer';
 import { PrayerPoseIcon } from './PrayerPoseIcon';
+import { getSemanticStagePose } from '../services/prayerPresentation';
 
 type PrayerStageCardProps = {
   prayer: PrayerType;
@@ -102,12 +103,18 @@ export function PrayerStageCard({
     : isPostSujudTransitionGrace
     ? 'SUJUD_2'
     : prayerStage;
-  const displayedPose = isPreSujudTransitionGrace
+  const legacyDisplayedPose = isPreSujudTransitionGrace
     ? 'STANDING'
     : isPostSujudTransitionGrace
       ? 'PROSTRATING'
       : currentPose;
   const isExtraBowing = currentPose === 'BOWING' && latestSahwAlert?.type === 'EXTRA_BOWING';
+  // The extra-Ruku label is itself a semantic override; use the same stage for
+  // its icon. Otherwise the displayed stage always wins over raw observations.
+  const displayedIconStage = Platform.OS === 'ios' && isExtraBowing ? 'BOWING' : displayedPrayerStage;
+  const displayedPose = Platform.OS === 'ios'
+    ? getSemanticStagePose(displayedIconStage, legacyDisplayedPose)
+    : legacyDisplayedPose;
   const tashahhudKind = state.sequence.awaitingFirstTashahhud
     ? 'first'
     : state.sequence.awaitingFinalTashahhud
@@ -135,7 +142,7 @@ export function PrayerStageCard({
         <View style={styles.currentRow}>
           <View style={styles.currentStage}>
             <View style={styles.iconSlot}>
-              {showPoseIcon ? <PrayerPoseIcon pose={displayedPose} stage={displayedPrayerStage} size={56} /> : <View style={styles.iconPlaceholder} />}
+              {showPoseIcon ? <PrayerPoseIcon pose={displayedPose} stage={displayedIconStage} size={56} /> : <View style={styles.iconPlaceholder} />}
             </View>
             <View style={styles.stageCopy}>
             <Text
@@ -220,6 +227,7 @@ export function PrayerStageCard({
 
 const styles = StyleSheet.create({
   card: {
+    ...(Platform.OS === 'ios' ? { direction: 'rtl' as const } : {}),
     marginTop: 22,
     padding: 18,
     borderRadius: 18,
@@ -227,16 +235,18 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.panel,
   },
-  currentRow: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
-  currentStage: { flex: 1, minWidth: 0, flexDirection: 'row-reverse', alignItems: 'center', gap: 12 },
+  currentRow: { flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+  currentStage: { flex: 1, minWidth: 0, flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', alignItems: 'center', gap: 12 },
   iconSlot: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   iconPlaceholder: { width: 56, height: 56 },
   stageCopy: { flex: 1, minWidth: 0 },
-  currentText: { color: colors.ivory, fontSize: 15, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl' },
+  // iOS Fabric swaps explicit left/right in RTL. Natural alignment plus an
+  // Arabic paragraph direction keeps the text on the right, including numbers.
+  currentText: { color: colors.ivory, fontSize: 15, fontWeight: '700', textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl' },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: 16 },
-  timelineTitle: { color: colors.muted, fontSize: 11, textAlign: 'right', writingDirection: 'rtl', marginBottom: 13 },
+  timelineTitle: { color: colors.muted, fontSize: 11, textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl', marginBottom: 13 },
   timelineRows: { gap: 16 },
-  timelineRow: { flexDirection: 'row-reverse', alignItems: 'flex-start' },
+  timelineRow: { flexDirection: Platform.OS === 'ios' ? 'row' : 'row-reverse', alignItems: 'flex-start' },
   timelineItem: { flex: 1, minWidth: 0, alignItems: 'center', position: 'relative' },
   timelineLine: { position: 'absolute', top: 4, height: StyleSheet.hairlineWidth, backgroundColor: colors.brass },
   timelineDot: { zIndex: 1, width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(124,139,148,0.50)' },
@@ -247,8 +257,8 @@ const styles = StyleSheet.create({
   timelineLabelComplete: { color: colors.brassSoft },
   sahwSection: { marginTop: 18 },
   sahwSeparator: { height: StyleSheet.hairlineWidth, marginBottom: 14 },
-  sahwTitle: { fontSize: 13, fontWeight: '700', textAlign: 'right', writingDirection: 'rtl', marginBottom: 10 },
+  sahwTitle: { fontSize: 13, fontWeight: '700', textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl', marginBottom: 10 },
   sahwList: { gap: 7 },
   sahwEntry: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9 },
-  sahwEntryText: { fontSize: 12.5, fontWeight: '600', lineHeight: 20, textAlign: 'right', writingDirection: 'rtl' },
+  sahwEntryText: { fontSize: 12.5, fontWeight: '600', lineHeight: 20, textAlign: Platform.OS === 'ios' ? 'auto' : 'right', writingDirection: 'rtl' },
 });

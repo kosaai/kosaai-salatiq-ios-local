@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import icons from '../assets/ios/pose-icons.json';
 import { colors } from '../constants/theme';
 import type { PrayerPose, PrayerStage } from '../types/prayer';
+import { getSemanticStagePose } from '../services/prayerPresentation';
 
 // Identical artwork/crop/color to the shared component, but the SVG bytes are
 // embedded in JS so native rendering never fetches/downloads a pose icon.
@@ -14,7 +15,7 @@ const crops = {
 } as const;
 
 export function PrayerPoseIcon({ pose, stage, size = 56 }: { pose: PrayerPose | null; stage: PrayerStage; size?: number }) {
-  const displayPose = stage === 'ITIDAL' && pose === 'STANDING' ? 'STANDING' : pose;
+  const displayPose = getSemanticStagePose(stage, pose);
   const key = displayPose && displayPose in icons ? displayPose as keyof typeof icons : null;
   let xml = key ? icons[key] : null;
   if (xml && key) {
