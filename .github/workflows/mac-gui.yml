@@ -14,39 +14,118 @@ jobs:
 
       - name: Download official iLoader
         run: |
-          curl -L \
+          mkdir -p ~/Downloads ~/Desktop
+
+          curl -fL \
             -o ~/Downloads/iloader.dmg \
             https://github.com/nab138/iloader/releases/download/v2.3.6/iloader-darwin-universal.dmg
 
       - name: Install iLoader
         run: |
           hdiutil attach ~/Downloads/iloader.dmg -nobrowse
+
           APP="$(find /Volumes -maxdepth 2 -name 'iloader.app' -print -quit)"
-          echo "Found: $APP"
-          cp -R "$APP" /Applications/
-          cp -R "$APP" ~/Desktop/
+
+          if [ -z "$APP" ]; then
+            echo "iLoader.app not found"
+            exit 1
+          fi
+
+          echo "Found iLoader: $APP"
+
+          sudo rm -rf /Applications/iloader.app
+          cp -R "$APP" /Applications/iloader.app
+
+          rm -rf ~/Desktop/iloader.app
+          cp -R "$APP" ~/Desktop/iloader.app
+
+          sudo xattr -dr com.apple.quarantine /Applications/iloader.app || true
+
           hdiutil detach "$(dirname "$APP")" || true
 
       - name: Install RustDesk
         run: |
           brew install --cask rustdesk
 
-      - name: Launch apps
+          test -d /Applications/RustDesk.app
+
+          sudo xattr -dr com.apple.quarantine /Applications/RustDesk.app || true
+
+          echo "RustDesk installed:"
+          ls -ld /Applications/RustDesk.app
+
+      - name: Start RustDesk
+        env:
+          RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
         run: |
-          open -a RustDesk
-          open -a iLoader
+          BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
+
+          if [ ! -x "$BIN" ]; then
+            echo "RustDesk binary not found: $BIN"
+            exit 1
+          fi
+
+          if [ -z "$RUSTDESK_PASSWORD" ]; then
+            echo "ERROR: GitHub secret RUSTDESK_PASSWORD is missing."
+            exit 1
+          fi
+
+          "$BIN" --server > /tmp/rustdesk-server.log 2>&1 &
+
+          sleep 5
+
+          "$BIN" --password "$RUSTDESK_PASSWORD" || true
+
+          open -n /Applications/RustDesk.app || true
+
           sleep 10
 
-      - name: Show RustDesk info
+      - name: Show RustDesk connection info
         run: |
-          echo "Trying to read RustDesk ID..."
-          /Applications/RustDesk.app/Contents/MacOS/RustDesk --get-id || true
-          echo "RustDesk app launched."
+          BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
 
-      - name: Keep session alive
+          echo "Waiting for RustDesk ID..."
+
+          ID=""
+
+          for i in {1..20}; do
+            ID="$("$BIN" --get-id 2>/dev/null | tr -d '\r\n' || true)"
+
+            if [ -n "$ID" ]; then
+              break
+            fi
+
+            sleep 3
+          done
+
+          echo "===================================="
+
+          if [ -n "$ID" ]; then
+            echo "RustDesk ID: $ID"
+          else
+            echo "RustDesk ID was not returned."
+            echo "RustDesk processes:"
+            pgrep -fl RustDesk || true
+            echo "Server log:"
+            cat /tmp/rustdesk-server.log || true
+          fi
+
+          echo "Password: use your GitHub secret RUSTDESK_PASSWORD"
+          echo "===================================="
+
+      - name: Launch iLoader
         run: |
-          echo "macOS session will remain alive for about 55 minutes."
-          for i in {1..55}; do
-            echo "Minute $i / 55"
+          open -n /Applications/iloader.app || true
+          sleep 5
+
+      - name: Keep macOS alive
+        run: |
+          echo "===================================="
+          echo "macOS remote session is active."
+          echo "Job will stay alive until the 60-minute timeout."
+          echo "===================================="
+
+          while true; do
+            echo "$(date): session alive"
             sleep 60
           done
