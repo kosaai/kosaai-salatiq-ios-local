@@ -12,10 +12,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare folders
+        run: |
+          mkdir -p ~/Downloads
+          mkdir -p ~/Desktop
+
       - name: Download official iLoader
         run: |
-          mkdir -p ~/Downloads ~/Desktop
-
           curl -fL \
             -o ~/Downloads/iloader.dmg \
             https://github.com/nab138/iloader/releases/download/v2.3.6/iloader-darwin-universal.dmg
@@ -27,7 +30,7 @@ jobs:
           APP="$(find /Volumes -maxdepth 2 -name 'iloader.app' -print -quit)"
 
           if [ -z "$APP" ]; then
-            echo "iLoader.app not found"
+            echo "ERROR: iLoader.app not found"
             exit 1
           fi
 
@@ -43,25 +46,70 @@ jobs:
 
           hdiutil detach "$(dirname "$APP")" || true
 
+          echo "iLoader installed successfully."
+
       - name: Install RustDesk
         run: |
           brew install --cask rustdesk
 
-          test -d /Applications/RustDesk.app
+          if [ ! -d "/Applications/RustDesk.app" ]; then
+            echo "ERROR: RustDesk.app not found"
+            exit 1
+          fi
 
           sudo xattr -dr com.apple.quarantine /Applications/RustDesk.app || true
 
           echo "RustDesk installed:"
           ls -ld /Applications/RustDesk.app
 
-      - name: Start RustDesk
+      - name: Install RustDesk service
+        run: |
+          BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
+
+          echo "Installing RustDesk macOS service..."
+
+          sudo "$BIN" --install-service || true
+
+          sleep 10
+
+          echo "RustDesk LaunchDaemons:"
+          ls -la /Library/LaunchDaemons/ | grep -i rustdesk || true
+
+          echo "RustDesk LaunchAgents:"
+          ls -la /Library/LaunchAgents/ | grep -i rustdesk || true
+
+          echo "Trying to start RustDesk daemon..."
+
+          for PLIST in /Library/LaunchDaemons/*rustdesk* /Library/LaunchDaemons/*RustDesk*; do
+            if [ -f "$PLIST" ]; then
+              echo "Starting $PLIST"
+              sudo launchctl bootstrap system "$PLIST" 2>/dev/null || true
+              sudo launchctl kickstart -k "system/$(basename "$PLIST" .plist)" 2>/dev/null || true
+            fi
+          done
+
+          echo "Trying to start RustDesk user agent..."
+
+          UID_NOW="$(id -u)"
+
+          for PLIST in /Library/LaunchAgents/*rustdesk* /Library/LaunchAgents/*RustDesk*; do
+            if [ -f "$PLIST" ]; then
+              echo "Starting $PLIST"
+              launchctl bootstrap "gui/$UID_NOW" "$PLIST" 2>/dev/null || true
+              launchctl kickstart -k "gui/$UID_NOW/$(basename "$PLIST" .plist)" 2>/dev/null || true
+            fi
+          done
+
+          sleep 8
+
+      - name: Start RustDesk and set password
         env:
           RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
         run: |
           BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
 
           if [ ! -x "$BIN" ]; then
-            echo "RustDesk binary not found: $BIN"
+            echo "ERROR: RustDesk binary not found."
             exit 1
           fi
 
@@ -70,17 +118,25 @@ jobs:
             exit 1
           fi
 
-          echo "Setting RustDesk password with administrator privileges..."
-          sudo "$BIN" --password "$RUSTDESK_PASSWORD"
-
-          echo "Starting RustDesk..."
-          "$BIN" --server > /tmp/rustdesk-server.log 2>&1 &
-
-          sleep 5
-
+          echo "Launching RustDesk GUI..."
           open -n /Applications/RustDesk.app || true
 
           sleep 10
+
+          echo "Starting RustDesk server..."
+          "$BIN" --server > /tmp/rustdesk-server.log 2>&1 &
+
+          sleep 8
+
+          echo "Setting permanent RustDesk password..."
+
+          sudo "$BIN" --password "$RUSTDESK_PASSWORD" || {
+            echo "WARNING: Password command returned an error."
+            echo "RustDesk logs:"
+            cat /tmp/rustdesk-server.log || true
+          }
+
+          sleep 5
 
       - name: Show RustDesk connection info
         run: |
@@ -90,44 +146,69 @@ jobs:
 
           ID=""
 
-          for i in {1..20}; do
+          for i in {1..30}; do
             ID="$("$BIN" --get-id 2>/dev/null | tr -d '\r\n' || true)"
 
             if [ -n "$ID" ]; then
               break
             fi
 
+            echo "Waiting... attempt $i"
             sleep 3
           done
 
-          echo "===================================="
+          echo ""
+          echo "=========================================="
 
           if [ -n "$ID" ]; then
             echo "RustDesk ID: $ID"
           else
-            echo "RustDesk ID was not returned."
+            echo "ERROR: RustDesk ID was not returned."
+
+            echo ""
             echo "RustDesk processes:"
             pgrep -fl RustDesk || true
-            echo "Server log:"
+
+            echo ""
+            echo "RustDesk server log:"
             cat /tmp/rustdesk-server.log || true
           fi
 
-          echo "Password: use the password saved in RUSTDESK_PASSWORD"
-          echo "===================================="
+          echo ""
+          echo "Password: use your RUSTDESK_PASSWORD secret"
+          echo "=========================================="
 
       - name: Launch iLoader
         run: |
+          echo "Launching iLoader..."
+
           open -n /Applications/iloader.app || true
+
           sleep 5
+
+      - name: Verify applications
+        run: |
+          echo "Installed applications:"
+          ls -ld /Applications/RustDesk.app
+          ls -ld /Applications/iloader.app
+
+          echo ""
+          echo "Desktop:"
+          ls -la ~/Desktop/
+
+          echo ""
+          echo "Running RustDesk processes:"
+          pgrep -fl RustDesk || true
 
       - name: Keep macOS alive
         run: |
-          echo "===================================="
-          echo "macOS remote session is active."
-          echo "Job will stay alive until the 60-minute timeout."
-          echo "===================================="
+          echo "=========================================="
+          echo "macOS remote session is ACTIVE"
+          echo "Session duration: maximum 60 minutes"
+          echo "Do not cancel this workflow while connected"
+          echo "=========================================="
 
           while true; do
-            echo "$(date): session alive"
+            echo "$(date): macOS session alive"
             sleep 60
           done
