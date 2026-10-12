@@ -27,25 +27,21 @@ jobs:
           cp -R "$APP" ~/Desktop/
           hdiutil detach "$(dirname "$APP")" || true
 
-      - name: Download RustDesk
-        run: |
-          curl -L \
-            -o ~/Downloads/rustdesk.dmg \
-            https://github.com/rustdesk/rustdesk/releases/latest/download/rustdesk-1.4.2-x86_64.dmg
-
       - name: Install RustDesk
         run: |
-          hdiutil attach ~/Downloads/rustdesk.dmg -nobrowse
-          RAPP="$(find /Volumes -maxdepth 2 -name 'RustDesk.app' -print -quit)"
-          echo "Found: $RAPP"
-          cp -R "$RAPP" /Applications/
-          hdiutil detach "$(dirname "$RAPP")" || true
+          brew install --cask rustdesk
 
       - name: Launch apps
         run: |
-          open -a "/Applications/RustDesk.app"
-          open -a "/Applications/iloader.app"
+          open -a RustDesk
+          open -a iLoader
           sleep 10
+
+      - name: Show RustDesk info
+        run: |
+          echo "Trying to read RustDesk ID..."
+          /Applications/RustDesk.app/Contents/MacOS/RustDesk --get-id || true
+          echo "RustDesk app launched."
 
       - name: Keep session alive
         run: |
