@@ -70,11 +70,13 @@ jobs:
             exit 1
           fi
 
+          echo "Setting RustDesk password with administrator privileges..."
+          sudo "$BIN" --password "$RUSTDESK_PASSWORD"
+
+          echo "Starting RustDesk..."
           "$BIN" --server > /tmp/rustdesk-server.log 2>&1 &
 
           sleep 5
-
-          "$BIN" --password "$RUSTDESK_PASSWORD" || true
 
           open -n /Applications/RustDesk.app || true
 
@@ -110,7 +112,7 @@ jobs:
             cat /tmp/rustdesk-server.log || true
           fi
 
-          echo "Password: use your GitHub secret RUSTDESK_PASSWORD"
+          echo "Password: use the password saved in RUSTDESK_PASSWORD"
           echo "===================================="
 
       - name: Launch iLoader
