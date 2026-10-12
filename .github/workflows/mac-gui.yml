@@ -1,0 +1,56 @@
+name: macOS GUI - 1 Hour
+
+on:
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download official iLoader
+        run: |
+          curl -L \
+            -o ~/Downloads/iloader.dmg \
+            https://github.com/nab138/iloader/releases/download/v2.3.6/iloader-darwin-universal.dmg
+
+      - name: Install iLoader
+        run: |
+          hdiutil attach ~/Downloads/iloader.dmg -nobrowse
+          APP="$(find /Volumes -maxdepth 2 -name 'iloader.app' -print -quit)"
+          echo "Found: $APP"
+          cp -R "$APP" /Applications/
+          cp -R "$APP" ~/Desktop/
+          hdiutil detach "$(dirname "$APP")" || true
+
+      - name: Download RustDesk
+        run: |
+          curl -L \
+            -o ~/Downloads/rustdesk.dmg \
+            https://github.com/rustdesk/rustdesk/releases/latest/download/rustdesk-1.4.2-x86_64.dmg
+
+      - name: Install RustDesk
+        run: |
+          hdiutil attach ~/Downloads/rustdesk.dmg -nobrowse
+          RAPP="$(find /Volumes -maxdepth 2 -name 'RustDesk.app' -print -quit)"
+          echo "Found: $RAPP"
+          cp -R "$RAPP" /Applications/
+          hdiutil detach "$(dirname "$RAPP")" || true
+
+      - name: Launch apps
+        run: |
+          open -a "/Applications/RustDesk.app"
+          open -a "/Applications/iloader.app"
+          sleep 10
+
+      - name: Keep session alive
+        run: |
+          echo "macOS session will remain alive for about 55 minutes."
+          for i in {1..55}; do
+            echo "Minute $i / 55"
+            sleep 60
+          done
