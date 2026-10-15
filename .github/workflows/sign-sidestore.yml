@@ -131,13 +131,14 @@ jobs:
       # 4. FIX THE ORIGINAL P12
       #
       # Your old P12 contains a key + certificate but has no MAC.
-      # We extract it with -nomacver and rebuild a clean P12.
+      # We extract it with -nomacver and rebuild an Apple-compatible P12.
       # ============================================================
 
       - name: Normalize old P12 safely
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
 
           if ! brew list openssl@3 >/dev/null 2>&1; then
             brew install openssl@3
@@ -211,14 +212,18 @@ jobs:
             -outform DER \
             -out signing/certificate.der
 
-          echo "Rebuilding clean temporary P12..."
+          echo "Rebuilding Apple-compatible legacy temporary P12..."
 
           "$OPENSSL_BIN" pkcs12 \
             -export \
+            -legacy \
+            -keypbe PBE-SHA1-3DES \
+            -certpbe PBE-SHA1-3DES \
+            -macalg sha1 \
             -inkey signing/private-key.pem \
             -in signing/certificate.pem \
             -name "Qusai SideStore Signing" \
-            -passout "pass:${NORMALIZED_P12_PASSWORD}" \
+            -passout env:NORMALIZED_P12_PASSWORD \
             -out signing/normalized.p12
 
           test -s signing/normalized.p12
@@ -236,13 +241,51 @@ jobs:
           echo ""
           echo "Normalized P12 check:"
 
+          # Verify the MAC with the same password used for Keychain import.
+          # Do not use -nomacver for the rebuilt archive.
           "$OPENSSL_BIN" pkcs12 \
+            -legacy \
             -in signing/normalized.p12 \
-            -passin "pass:${NORMALIZED_P12_PASSWORD}" \
+            -passin env:NORMALIZED_P12_PASSWORD \
             -info \
-            -noout \
-            2>&1 | head -20
+            -noout
 
+          # Round-trip both objects without printing any private material.
+          trap 'rm -f signing/normalized-check.pem signing/normalized-key-check.pem signing/normalized-certificate-check.der' EXIT
+
+          "$OPENSSL_BIN" pkcs12 \
+            -legacy \
+            -in signing/normalized.p12 \
+            -passin env:NORMALIZED_P12_PASSWORD \
+            -nodes \
+            -out signing/normalized-check.pem
+
+          "$OPENSSL_BIN" pkey \
+            -in signing/normalized-check.pem \
+            -check \
+            -noout
+
+          "$OPENSSL_BIN" pkey \
+            -in signing/normalized-check.pem \
+            -out signing/normalized-key-check.pem
+
+          "$OPENSSL_BIN" x509 \
+            -in signing/normalized-check.pem \
+            -outform DER \
+            -out signing/normalized-certificate-check.der
+
+          if ! cmp -s signing/private-key.pem signing/normalized-key-check.pem; then
+            echo "ERROR: Normalized P12 private key differs from the original"
+            exit 1
+          fi
+
+          if ! cmp -s signing/certificate.der signing/normalized-certificate-check.der; then
+            echo "ERROR: Normalized P12 certificate differs from the original"
+            exit 1
+          fi
+
+          echo "Normalized P12 MAC, private key and certificate: OK"
+          echo "Original private key and certificate preserved: YES"
           echo "P12 normalization: OK"
 
       # ============================================================
@@ -579,6 +622,7 @@ jobs:
 
           security import \
             signing/normalized.p12 \
+            -f pkcs12 \
             -k "$KEYCHAIN_PATH" \
             -P "$NORMALIZED_P12_PASSWORD" \
             -T /usr/bin/codesign \
@@ -590,25 +634,41 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
-          echo "Available signing identities:"
+          echo "Available valid signing identities:"
 
           security find-identity \
             -v \
             -p codesigning \
-            "$KEYCHAIN_PATH"
+            "$KEYCHAIN_PATH" \
+            > signing/codesigning-identities.txt
 
-          IDENTITY="$(
-            security find-identity \
-              -v \
-              -p codesigning \
-              "$KEYCHAIN_PATH" \
-              | awk '/[0-9A-F]{40}/ {print $2; exit}'
+          cat signing/codesigning-identities.txt
+
+          OPENSSL_BIN="$(brew --prefix openssl@3)/bin/openssl"
+
+          EXPECTED_IDENTITY="$(
+            "$OPENSSL_BIN" x509 \
+              -in signing/certificate.pem \
+              -noout \
+              -fingerprint \
+              -sha1 \
+              | cut -d= -f2 \
+              | tr -d ':' \
+              | tr '[:lower:]' '[:upper:]'
           )"
 
-          if [ -z "$IDENTITY" ]; then
-            echo "ERROR: No valid signing identity found"
+          IDENTITY="$(
+            awk -v expected="$EXPECTED_IDENTITY" \
+              '$2 == expected {print $2}' \
+              signing/codesigning-identities.txt
+          )"
+
+          if [ -z "$IDENTITY" ] || [ "$IDENTITY" != "$EXPECTED_IDENTITY" ]; then
+            echo "ERROR: Original P12 certificate is not a valid Keychain signing identity"
             exit 1
           fi
+
+          echo "Original certificate imported as a valid signing identity: YES"
 
           echo "SIGNING_IDENTITY=$IDENTITY" \
             >> "$GITHUB_ENV"
