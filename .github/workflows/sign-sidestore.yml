@@ -27,7 +27,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. ??????? ??????
+      # 1. معلومات الجهاز
       # ============================================================
 
       - name: Show macOS info
@@ -36,12 +36,12 @@ jobs:
           set -e
           sw_vers
           xcodebuild -version
-          codesign --version
+          echo "codesign path:"
+          xcrun --find codesign
+          echo "macOS signing tools ready"
 
       # ============================================================
-      # 2. ????? SideStore 0.7.0-alpha ??????
-      #    ?? ????? ??? ???? Asset ????
-      #    ???? SideStore.ipa ?? GitHub Release API
+      # 2. تنزيل SideStore 0.7.0-alpha الرسمي
       # ============================================================
 
       - name: Download official SideStore 0.7.0-alpha
@@ -77,7 +77,9 @@ jobs:
               print("Available assets:")
               for a in assets:
                   print(" -", a.get("name"))
-              raise SystemExit("ERROR: SideStore.ipa was not found in release 0.7.0-alpha")
+              raise SystemExit(
+                  "ERROR: SideStore.ipa was not found in release 0.7.0-alpha"
+              )
 
           url = matches[0]["browser_download_url"]
 
@@ -96,7 +98,7 @@ jobs:
           echo "IPA ZIP check: OK"
 
       # ============================================================
-      # 3. ?? Secrets
+      # 3. فك Secrets
       # ============================================================
 
       - name: Decode P12 and provisioning profiles
@@ -120,26 +122,32 @@ jobs:
               value = os.environ.get(env_name, "").strip()
 
               if not value:
-                  raise SystemExit(f"ERROR: GitHub Secret {env_name} is empty")
+                  raise SystemExit(
+                      f"ERROR: GitHub Secret {env_name} is empty"
+                  )
 
               try:
                   data = base64.b64decode(value, validate=True)
               except Exception as e:
-                  raise SystemExit(f"ERROR decoding {env_name}: {e}")
+                  raise SystemExit(
+                      f"ERROR decoding {env_name}: {e}"
+                  )
 
               with open(path, "wb") as f:
                   f.write(data)
 
               if not data:
-                  raise SystemExit(f"ERROR: {path} is empty")
+                  raise SystemExit(
+                      f"ERROR: {path} is empty"
+                  )
 
-              print(f"Decoded {path}: {len(data)} bytes")
+              print(
+                  f"Decoded {path}: {len(data)} bytes"
+              )
           PY
 
       # ============================================================
-      # 4. ??????? ????? P12
-      #    P12 ???? ???? ???? ??
-      #    ?? Secret ????? none ?????? ????? ?? ?????
+      # 4. استخراج شهادة P12
       # ============================================================
 
       - name: Read signing certificate
@@ -166,6 +174,7 @@ jobs:
             -out signing/certificate.der
 
           echo "P12 certificate:"
+
           openssl x509 \
             -in signing/certificate.pem \
             -noout \
@@ -175,7 +184,7 @@ jobs:
             -dates
 
       # ============================================================
-      # 5. ?? mobileprovision
+      # 5. فك mobileprovision
       # ============================================================
 
       - name: Decode provisioning profiles
@@ -197,14 +206,7 @@ jobs:
           echo "Profiles decoded successfully"
 
       # ============================================================
-      # 6. ??? ??? ????:
-      #
-      # - Team ID ????
-      # - Bundle IDs ??????
-      # - ???P12 ???? ????? ???? BOTH profiles
-      #
-      # ??? AltWidget ????? ?????? ??????:
-      # STOP ??? ???? ???
+      # 6. التحقق أن الشهادة والـProfiles متطابقين
       # ============================================================
 
       - name: Verify profiles and same P12 certificate
@@ -214,7 +216,6 @@ jobs:
 
           python3 <<'PY'
           import os
-          import sys
           import plistlib
           import hashlib
           import datetime
@@ -238,7 +239,10 @@ jobs:
               ent = profile.get("Entitlements", {})
 
               teams = profile.get("TeamIdentifier", [])
-              app_identifier = ent.get("application-identifier", "")
+              app_identifier = ent.get(
+                  "application-identifier",
+                  ""
+              )
 
               if "." not in app_identifier:
                   raise SystemExit(
@@ -282,7 +286,10 @@ jobs:
                           f"ERROR: {label} provisioning profile has expired"
                       )
 
-              certs = profile.get("DeveloperCertificates", [])
+              certs = profile.get(
+                  "DeveloperCertificates",
+                  []
+              )
 
               cert_hashes = [
                   hashlib.sha256(c).hexdigest()
@@ -290,11 +297,16 @@ jobs:
               ]
 
               if p12_fp not in cert_hashes:
+
                   print("")
                   print("P12 certificate:")
                   print(p12_fp)
+
                   print("")
-                  print(f"Certificates allowed by {label}:")
+                  print(
+                      f"Certificates allowed by {label}:"
+                  )
+
                   for fp in cert_hashes:
                       print(fp)
 
@@ -303,7 +315,9 @@ jobs:
                       "Signing stopped safely."
                   )
 
-              print("P12 certificate matches this profile: YES")
+              print(
+                  "P12 certificate matches this profile: YES"
+              )
 
               groups = ent.get(
                   "com.apple.security.application-groups",
@@ -326,44 +340,68 @@ jobs:
               "ALTWIDGET PROFILE"
           )
 
-          # ???? Entitlements ??? ?????? Apple ??????
-          with open("signing/main-entitlements.plist", "wb") as f:
+          with open(
+              "signing/main-entitlements.plist",
+              "wb"
+          ) as f:
               plistlib.dump(
                   main_ent,
                   f,
                   fmt=plistlib.FMT_XML
               )
 
-          with open("signing/widget-entitlements.plist", "wb") as f:
+          with open(
+              "signing/widget-entitlements.plist",
+              "wb"
+          ) as f:
               plistlib.dump(
                   widget_ent,
                   f,
                   fmt=plistlib.FMT_XML
               )
 
-          # App Group ???????
           preferred_group = (
               main_groups[0]
               if main_groups
               else f"group.com.SideStore.SideStore.{TEAM}"
           )
 
-          with open(os.environ["GITHUB_ENV"], "a") as env:
-              env.write(f"MAIN_BUNDLE_ID={main_bundle}\n")
-              env.write(f"WIDGET_BUNDLE_ID={widget_bundle}\n")
-              env.write(f"SIDESTORE_APP_GROUP={preferred_group}\n")
+          with open(
+              os.environ["GITHUB_ENV"],
+              "a"
+          ) as env:
+
+              env.write(
+                  f"MAIN_BUNDLE_ID={main_bundle}\n"
+              )
+
+              env.write(
+                  f"WIDGET_BUNDLE_ID={widget_bundle}\n"
+              )
+
+              env.write(
+                  f"SIDESTORE_APP_GROUP={preferred_group}\n"
+              )
 
           if preferred_group not in widget_groups:
+
               print("")
-              print("::warning::AltWidget profile does not contain the same App Group.")
-              print("::warning::The IPA can still be signed, but the widget may have limited shared-data functionality.")
+              print(
+                  "::warning::AltWidget profile does not contain the same App Group."
+              )
+
+              print(
+                  "::warning::The widget may have limited shared-data functionality."
+              )
 
           print("")
-          print("ALL CERTIFICATE AND PROFILE CHECKS PASSED")
+          print(
+              "ALL CERTIFICATE AND PROFILE CHECKS PASSED"
+          )
           PY
 
       # ============================================================
-      # 7. ????? Keychain ???? ?????? ??? P12
+      # 7. إنشاء Keychain مؤقت واستيراد P12
       # ============================================================
 
       - name: Import P12 into temporary macOS keychain
@@ -421,17 +459,23 @@ jobs:
             exit 1
           fi
 
-          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo \
+            "SIGNING_IDENTITY=$IDENTITY" \
+            >> "$GITHUB_ENV"
+
+          echo \
+            "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" \
+            >> "$GITHUB_ENV"
 
           echo "Signing identity:"
+
           security find-identity \
             -v \
             -p codesigning \
             "$KEYCHAIN_PATH"
 
       # ============================================================
-      # 8. ?? IPA
+      # 8. فك IPA
       # ============================================================
 
       - name: Extract SideStore IPA
@@ -464,8 +508,13 @@ jobs:
             exit 1
           fi
 
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
-          echo "WIDGET_PATH=$WIDGET_PATH" >> "$GITHUB_ENV"
+          echo \
+            "APP_PATH=$APP_PATH" \
+            >> "$GITHUB_ENV"
+
+          echo \
+            "WIDGET_PATH=$WIDGET_PATH" \
+            >> "$GITHUB_ENV"
 
           echo "App:"
           echo "$APP_PATH"
@@ -474,7 +523,7 @@ jobs:
           echo "$WIDGET_PATH"
 
       # ============================================================
-      # 9. ????? ?? ????? ?? 0.7.0-alpha ???? ?????
+      # 9. فحص الإصدار
       # ============================================================
 
       - name: Verify downloaded SideStore version
@@ -498,23 +547,21 @@ jobs:
           echo "Original Bundle ID: $ORIGINAL_ID"
 
           case "$VERSION" in
+
             0.7.0-20260911.*6032424a*)
               echo "Correct 0.7.0-alpha build"
               ;;
+
             *)
-              echo "ERROR: Unexpected SideStore version: $VERSION"
+              echo \
+                "ERROR: Unexpected SideStore version: $VERSION"
               exit 1
               ;;
+
           esac
 
       # ============================================================
-      # 10. ????? Bundle IDs ??? App IDs ??????? ???????? ????
-      #
-      # main:
-      # com.SideStore.SideStore.6JKQ4V5NDG
-      #
-      # widget:
-      # com.SideStore.SideStore.6JKQ4V5NDG.AltWidget
+      # 10. تغيير Bundle IDs
       # ============================================================
 
       - name: Rewrite SideStore identifiers
@@ -546,31 +593,42 @@ jobs:
                       sort_keys=False
                   )
 
-          # -------------------------
-          # Main app Info.plist
-          # -------------------------
+          main_plist = os.path.join(
+              app,
+              "Info.plist"
+          )
 
-          main_plist = os.path.join(app, "Info.plist")
           p = load(main_plist)
 
           p["CFBundleIdentifier"] = main_id
           p["ALTAppGroups"] = [app_group]
 
-          # SideStore backup URL scheme
-          for entry in p.get("CFBundleURLTypes", []):
-              schemes = entry.get("CFBundleURLSchemes", [])
+          for entry in p.get(
+              "CFBundleURLTypes",
+              []
+          ):
 
-              for index, scheme in enumerate(schemes):
+              schemes = entry.get(
+                  "CFBundleURLSchemes",
+                  []
+              )
+
+              for index, scheme in enumerate(
+                  schemes
+              ):
+
                   if scheme == "sidestore-com.SideStore.SideStore":
-                      schemes[index] = f"sidestore-{main_id}"
+                      schemes[index] = (
+                          f"sidestore-{main_id}"
+                      )
 
           save(main_plist, p)
 
-          # -------------------------
-          # Widget Info.plist
-          # -------------------------
+          widget_plist = os.path.join(
+              widget,
+              "Info.plist"
+          )
 
-          widget_plist = os.path.join(widget, "Info.plist")
           p = load(widget_plist)
 
           p["CFBundleIdentifier"] = widget_id
@@ -578,13 +636,24 @@ jobs:
 
           save(widget_plist, p)
 
-          print("Main Bundle ID  :", main_id)
-          print("Widget Bundle ID:", widget_id)
-          print("App Group       :", app_group)
+          print(
+              "Main Bundle ID  :",
+              main_id
+          )
+
+          print(
+              "Widget Bundle ID:",
+              widget_id
+          )
+
+          print(
+              "App Group       :",
+              app_group
+          )
           PY
 
       # ============================================================
-      # 11. ????? mobileprovision ???? ??????? ????Widget
+      # 11. إدخال provisioning profiles
       # ============================================================
 
       - name: Embed provisioning profiles
@@ -600,13 +669,17 @@ jobs:
             signing/AltWidget.mobileprovision \
             "$WIDGET_PATH/embedded.mobileprovision"
 
-          rm -rf "$APP_PATH/_CodeSignature"
-          rm -rf "$WIDGET_PATH/_CodeSignature"
+          rm -rf \
+            "$APP_PATH/_CodeSignature"
 
-          echo "Provisioning profiles embedded"
+          rm -rf \
+            "$WIDGET_PATH/_CodeSignature"
+
+          echo \
+            "Provisioning profiles embedded"
 
       # ============================================================
-      # 12. ????? Frameworks / dylibs ?????
+      # 12. توقيع Frameworks و dylibs
       # ============================================================
 
       - name: Sign nested frameworks and libraries
@@ -617,6 +690,7 @@ jobs:
           if [ -d "$APP_PATH/Frameworks" ]; then
 
             while IFS= read -r -d '' dylib; do
+
               echo "Signing dylib:"
               echo "$dylib"
 
@@ -626,6 +700,7 @@ jobs:
                 --keychain "$SIGNING_KEYCHAIN" \
                 --timestamp=none \
                 "$dylib"
+
             done < <(
               find "$APP_PATH/Frameworks" \
                 -type f \
@@ -634,6 +709,7 @@ jobs:
             )
 
             while IFS= read -r -d '' framework; do
+
               echo "Signing framework:"
               echo "$framework"
 
@@ -643,6 +719,7 @@ jobs:
                 --keychain "$SIGNING_KEYCHAIN" \
                 --timestamp=none \
                 "$framework"
+
             done < <(
               find "$APP_PATH/Frameworks" \
                 -type d \
@@ -653,8 +730,7 @@ jobs:
           fi
 
       # ============================================================
-      # 13. ????? AltWidgetExtension ???????? ???????
-      #     ?profile ????? ??
+      # 13. توقيع AltWidget
       # ============================================================
 
       - name: Sign AltWidgetExtension
@@ -680,7 +756,7 @@ jobs:
             "$WIDGET_PATH"
 
       # ============================================================
-      # 14. ????? SideStore ??????? ??????
+      # 14. توقيع SideStore الرئيسي
       # ============================================================
 
       - name: Sign SideStore app
@@ -697,10 +773,11 @@ jobs:
             --timestamp=none \
             "$APP_PATH"
 
-          echo "Main SideStore app signed"
+          echo \
+            "Main SideStore app signed"
 
       # ============================================================
-      # 15. ??? ???????
+      # 15. التحقق النهائي
       # ============================================================
 
       - name: Verify final signature
@@ -709,6 +786,7 @@ jobs:
           set -euo pipefail
 
           echo "Main signature:"
+
           codesign \
             -d \
             --verbose=4 \
@@ -717,6 +795,7 @@ jobs:
 
           echo ""
           echo "Main entitlements:"
+
           codesign \
             -d \
             --entitlements :- \
@@ -725,6 +804,7 @@ jobs:
 
           echo ""
           echo "Widget signature:"
+
           codesign \
             -d \
             --verbose=4 \
@@ -733,6 +813,7 @@ jobs:
 
           echo ""
           echo "Widget entitlements:"
+
           codesign \
             -d \
             --entitlements :- \
@@ -749,10 +830,11 @@ jobs:
             --verbose=4 \
             "$APP_PATH"
 
-          echo "SIGNATURE CHECK PASSED"
+          echo \
+            "SIGNATURE CHECK PASSED"
 
       # ============================================================
-      # 16. ????? IPA ??????? ?????? ???? ?????
+      # 16. إنشاء SideStorequsai.ipa
       # ============================================================
 
       - name: Create SideStorequsai.ipa
@@ -776,7 +858,9 @@ jobs:
           echo "Final IPA:"
           ls -lh SideStorequsai.ipa
 
-          unzip -t SideStorequsai.ipa >/dev/null
+          unzip -t \
+            SideStorequsai.ipa \
+            >/dev/null
 
           echo "Final IPA ZIP test: OK"
 
@@ -789,11 +873,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          shasum -a 256 SideStorequsai.ipa \
+          shasum \
+            -a 256 \
+            SideStorequsai.ipa \
             | tee SideStorequsai.sha256
 
       # ============================================================
-      # 18. ??? ????? ???????
+      # 18. رفع الملف
       # ============================================================
 
       - name: Upload SideStorequsai.ipa
