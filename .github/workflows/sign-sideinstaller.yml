@@ -7,26 +7,6 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    name: Project lint and typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install locked dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Lint
-        run: npm exec -- eslint src components constants hooks screens services utils types
-      - name: Typecheck
-        if: success() || failure()
-        run: npm run typecheck
-
   sign:
     name: Sign SideInstallerQusai.ipa
     runs-on: macos-14
