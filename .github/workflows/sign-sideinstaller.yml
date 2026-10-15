@@ -22,7 +22,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Lint
-        run: npm run lint
+        run: npm exec -- eslint src components constants hooks screens services utils types
       - name: Typecheck
         if: success() || failure()
         run: npm run typecheck
@@ -557,6 +557,23 @@ jobs:
               old_prefix = requested.get("application-identifier", "").split(".", 1)[0]
               managed = {"application-identifier", "com.apple.developer.team-identifier", "get-task-allow", "aps-environment"}
           
+              def has_wildcard(value):
+                  if isinstance(value, str):
+                      return "*" in value
+                  if isinstance(value, list):
+                      return any(has_wildcard(v) for v in value)
+                  if isinstance(value, dict):
+                      return any(has_wildcard(v) for v in value.values())
+                  return False
+          
+              # The source IPA is unsigned. Use concrete capabilities from its
+              # supplied profile, including the authorized shared App Group.
+              if not requested:
+                  for key, grant in allowed.items():
+                      if key not in managed and key != "keychain-access-groups" and not has_wildcard(grant):
+                          final[key] = copy.deepcopy(grant)
+                  print(label + ": unsigned source; using concrete profile-authorized capabilities")
+          
               def choose(key, value, grant):
                   if isinstance(value, list):
                       if not isinstance(grant, list):
@@ -646,8 +663,17 @@ jobs:
                   if isinstance(value, list):
                       return [update(v, keys) for v in value]
                   if isinstance(value, str):
-                      # Group references only follow mappings authorized by the profile.
-                      replacement = rewrites.get(value, map_bundle(value))
+                      # Document UTIs, URL schemes and background task names
+                      # are API contracts used by the existing executable, not
+                      # signing identities. Keep them consistent with the binary.
+                      stable_keys = {
+                          "UTExportedTypeDeclarations", "UTImportedTypeDeclarations",
+                          "LSItemContentTypes", "UTTypeIdentifier", "CFBundleURLSchemes",
+                          "BGTaskSchedulerPermittedIdentifiers", "CFBundleExecutable",
+                          "CFBundleName", "CFBundleDisplayName", "CFBundleVersion",
+                          "CFBundleShortVersionString",
+                      }
+                      replacement = value if any(k in stable_keys for k in keys) else rewrites.get(value, map_bundle(value))
                       if replacement != value:
                           print("Info.plist reference:", info_path.relative_to(WORK), "/".join(keys), value, "->", replacement)
                       elif OLD_MAIN in value:
@@ -723,7 +749,7 @@ jobs:
               print("VERIFY:", target.relative_to(WORK), flush=True)
               run(["codesign", "--verify", "--strict", "--verbose=4", target])
               prefix = SIGNING / ("verified-certificate-" + str(index) + "-")
-              run(["codesign", "-d", "--extract-certificates", prefix, target])
+              run(["codesign", "-d", "--extract-certificates=" + str(prefix), target])
               if sha256(str(prefix) + "0") != cert_sha256:
                   fail("Signed target uses a different certificate: " + str(target))
           run(["codesign", "--verify", "--deep", "--strict", "--verbose=4", app])
