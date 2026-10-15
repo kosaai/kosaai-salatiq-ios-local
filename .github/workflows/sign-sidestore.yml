@@ -1,0 +1,807 @@
+name: Sign SideStore Qusai
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    name: Sign SideStorequsai.ipa
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    env:
+      TEAM_ID: "6JKQ4V5NDG"
+
+      EXPECTED_MAIN_BUNDLE_ID: "com.SideStore.SideStore.6JKQ4V5NDG"
+      EXPECTED_WIDGET_BUNDLE_ID: "com.SideStore.SideStore.6JKQ4V5NDG.AltWidget"
+
+      P12_BASE64: ${{ secrets.P12_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+
+      MAIN_PROFILE_BASE64: ${{ secrets.MAIN_PROFILE_BASE64 }}
+      ALTWIDGET_PROFILE_BASE64: ${{ secrets.ALTWIDGET_PROFILE_BASE64 }}
+
+    steps:
+
+      # ============================================================
+      # 1. ??????? ??????
+      # ============================================================
+
+      - name: Show macOS info
+        shell: bash
+        run: |
+          set -e
+          sw_vers
+          xcodebuild -version
+          codesign --version
+
+      # ============================================================
+      # 2. ????? SideStore 0.7.0-alpha ??????
+      #    ?? ????? ??? ???? Asset ????
+      #    ???? SideStore.ipa ?? GitHub Release API
+      # ============================================================
+
+      - name: Download official SideStore 0.7.0-alpha
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import json
+          import urllib.request
+
+          api = "https://api.github.com/repos/SideStore/SideStore/releases/tags/0.7.0-alpha"
+
+          req = urllib.request.Request(
+              api,
+              headers={
+                  "User-Agent": "SideStore-Qusai-Signer",
+                  "Accept": "application/vnd.github+json"
+              }
+          )
+
+          with urllib.request.urlopen(req) as r:
+              release = json.load(r)
+
+          assets = release.get("assets", [])
+
+          matches = [
+              a for a in assets
+              if a.get("name") == "SideStore.ipa"
+          ]
+
+          if not matches:
+              print("Available assets:")
+              for a in assets:
+                  print(" -", a.get("name"))
+              raise SystemExit("ERROR: SideStore.ipa was not found in release 0.7.0-alpha")
+
+          url = matches[0]["browser_download_url"]
+
+          print("Downloading official asset:")
+          print(url)
+
+          urllib.request.urlretrieve(url, "SideStore.ipa")
+          PY
+
+          test -s SideStore.ipa
+
+          echo "Downloaded:"
+          ls -lh SideStore.ipa
+
+          unzip -t SideStore.ipa >/dev/null
+          echo "IPA ZIP check: OK"
+
+      # ============================================================
+      # 3. ?? Secrets
+      # ============================================================
+
+      - name: Decode P12 and provisioning profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p signing
+
+          python3 <<'PY'
+          import os
+          import base64
+
+          files = {
+              "signing/signing.p12": "P12_BASE64",
+              "signing/main.mobileprovision": "MAIN_PROFILE_BASE64",
+              "signing/AltWidget.mobileprovision": "ALTWIDGET_PROFILE_BASE64",
+          }
+
+          for path, env_name in files.items():
+              value = os.environ.get(env_name, "").strip()
+
+              if not value:
+                  raise SystemExit(f"ERROR: GitHub Secret {env_name} is empty")
+
+              try:
+                  data = base64.b64decode(value, validate=True)
+              except Exception as e:
+                  raise SystemExit(f"ERROR decoding {env_name}: {e}")
+
+              with open(path, "wb") as f:
+                  f.write(data)
+
+              if not data:
+                  raise SystemExit(f"ERROR: {path} is empty")
+
+              print(f"Decoded {path}: {len(data)} bytes")
+          PY
+
+      # ============================================================
+      # 4. ??????? ????? P12
+      #    P12 ???? ???? ???? ??
+      #    ?? Secret ????? none ?????? ????? ?? ?????
+      # ============================================================
+
+      - name: Read signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          P12_PASS="${P12_PASSWORD:-}"
+
+          if [ "$P12_PASS" = "none" ]; then
+            P12_PASS=""
+          fi
+
+          openssl pkcs12 \
+            -in signing/signing.p12 \
+            -clcerts \
+            -nokeys \
+            -passin "pass:${P12_PASS}" \
+            -out signing/certificate.pem
+
+          openssl x509 \
+            -in signing/certificate.pem \
+            -outform DER \
+            -out signing/certificate.der
+
+          echo "P12 certificate:"
+          openssl x509 \
+            -in signing/certificate.pem \
+            -noout \
+            -subject \
+            -issuer \
+            -serial \
+            -dates
+
+      # ============================================================
+      # 5. ?? mobileprovision
+      # ============================================================
+
+      - name: Decode provisioning profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          security cms -D \
+            -i signing/main.mobileprovision \
+            > signing/main-profile.plist
+
+          security cms -D \
+            -i signing/AltWidget.mobileprovision \
+            > signing/widget-profile.plist
+
+          test -s signing/main-profile.plist
+          test -s signing/widget-profile.plist
+
+          echo "Profiles decoded successfully"
+
+      # ============================================================
+      # 6. ??? ??? ????:
+      #
+      # - Team ID ????
+      # - Bundle IDs ??????
+      # - ???P12 ???? ????? ???? BOTH profiles
+      #
+      # ??? AltWidget ????? ?????? ??????:
+      # STOP ??? ???? ???
+      # ============================================================
+
+      - name: Verify profiles and same P12 certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import os
+          import sys
+          import plistlib
+          import hashlib
+          import datetime
+
+          TEAM = os.environ["TEAM_ID"]
+          EXPECTED_MAIN = os.environ["EXPECTED_MAIN_BUNDLE_ID"]
+          EXPECTED_WIDGET = os.environ["EXPECTED_WIDGET_BUNDLE_ID"]
+
+          with open("signing/certificate.der", "rb") as f:
+              cert_der = f.read()
+
+          p12_fp = hashlib.sha256(cert_der).hexdigest()
+
+          print("P12 SHA256:", p12_fp)
+
+          def inspect_profile(path, expected_bundle, label):
+
+              with open(path, "rb") as f:
+                  profile = plistlib.load(f)
+
+              ent = profile.get("Entitlements", {})
+
+              teams = profile.get("TeamIdentifier", [])
+              app_identifier = ent.get("application-identifier", "")
+
+              if "." not in app_identifier:
+                  raise SystemExit(
+                      f"ERROR: {label} has invalid application-identifier"
+                  )
+
+              profile_team, bundle = app_identifier.split(".", 1)
+
+              print("")
+              print("========================================")
+              print(label)
+              print("Name:", profile.get("Name"))
+              print("UUID:", profile.get("UUID"))
+              print("Expiration:", profile.get("ExpirationDate"))
+              print("Team:", profile_team)
+              print("Bundle:", bundle)
+
+              if profile_team != TEAM:
+                  raise SystemExit(
+                      f"ERROR: {label} Team ID is {profile_team}, expected {TEAM}"
+                  )
+
+              if TEAM not in teams:
+                  raise SystemExit(
+                      f"ERROR: {label} TeamIdentifier does not contain {TEAM}"
+                  )
+
+              if bundle != expected_bundle:
+                  raise SystemExit(
+                      f"ERROR: {label} bundle ID is '{bundle}', "
+                      f"expected '{expected_bundle}'"
+                  )
+
+              expiration = profile.get("ExpirationDate")
+
+              if expiration:
+                  now = datetime.datetime.utcnow()
+
+                  if expiration <= now:
+                      raise SystemExit(
+                          f"ERROR: {label} provisioning profile has expired"
+                      )
+
+              certs = profile.get("DeveloperCertificates", [])
+
+              cert_hashes = [
+                  hashlib.sha256(c).hexdigest()
+                  for c in certs
+              ]
+
+              if p12_fp not in cert_hashes:
+                  print("")
+                  print("P12 certificate:")
+                  print(p12_fp)
+                  print("")
+                  print(f"Certificates allowed by {label}:")
+                  for fp in cert_hashes:
+                      print(fp)
+
+                  raise SystemExit(
+                      f"ERROR: {label} does NOT allow the P12 certificate. "
+                      "Signing stopped safely."
+                  )
+
+              print("P12 certificate matches this profile: YES")
+
+              groups = ent.get(
+                  "com.apple.security.application-groups",
+                  []
+              )
+
+              print("App Groups:", groups)
+
+              return profile, ent, bundle, groups
+
+          main_profile, main_ent, main_bundle, main_groups = inspect_profile(
+              "signing/main-profile.plist",
+              EXPECTED_MAIN,
+              "MAIN PROFILE"
+          )
+
+          widget_profile, widget_ent, widget_bundle, widget_groups = inspect_profile(
+              "signing/widget-profile.plist",
+              EXPECTED_WIDGET,
+              "ALTWIDGET PROFILE"
+          )
+
+          # ???? Entitlements ??? ?????? Apple ??????
+          with open("signing/main-entitlements.plist", "wb") as f:
+              plistlib.dump(
+                  main_ent,
+                  f,
+                  fmt=plistlib.FMT_XML
+              )
+
+          with open("signing/widget-entitlements.plist", "wb") as f:
+              plistlib.dump(
+                  widget_ent,
+                  f,
+                  fmt=plistlib.FMT_XML
+              )
+
+          # App Group ???????
+          preferred_group = (
+              main_groups[0]
+              if main_groups
+              else f"group.com.SideStore.SideStore.{TEAM}"
+          )
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"MAIN_BUNDLE_ID={main_bundle}\n")
+              env.write(f"WIDGET_BUNDLE_ID={widget_bundle}\n")
+              env.write(f"SIDESTORE_APP_GROUP={preferred_group}\n")
+
+          if preferred_group not in widget_groups:
+              print("")
+              print("::warning::AltWidget profile does not contain the same App Group.")
+              print("::warning::The IPA can still be signed, but the widget may have limited shared-data functionality.")
+
+          print("")
+          print("ALL CERTIFICATE AND PROFILE CHECKS PASSED")
+          PY
+
+      # ============================================================
+      # 7. ????? Keychain ???? ?????? ??? P12
+      # ============================================================
+
+      - name: Import P12 into temporary macOS keychain
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/qusai-signing.keychain-db"
+          KEYCHAIN_PASSWORD="QusaiTemporaryKeychain-2026"
+
+          P12_PASS="${P12_PASSWORD:-}"
+
+          if [ "$P12_PASS" = "none" ]; then
+            P12_PASS=""
+          fi
+
+          security create-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
+            "$KEYCHAIN_PATH"
+
+          security unlock-keychain \
+            -p "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security import signing/signing.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$P12_PASS" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security list-keychains \
+            -d user \
+            -s "$KEYCHAIN_PATH"
+
+          IDENTITY="$(
+            security find-identity \
+              -v \
+              -p codesigning \
+              "$KEYCHAIN_PATH" \
+            | awk 'NR==1 {print $2}'
+          )"
+
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: No code-signing identity found in P12"
+            exit 1
+          fi
+
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          echo "Signing identity:"
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$KEYCHAIN_PATH"
+
+      # ============================================================
+      # 8. ?? IPA
+      # ============================================================
+
+      - name: Extract SideStore IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf work
+          mkdir work
+
+          unzip -q SideStore.ipa -d work
+
+          APP_PATH="$(
+            find work/Payload \
+              -maxdepth 1 \
+              -type d \
+              -name '*.app' \
+              | head -1
+          )"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app not found"
+            exit 1
+          fi
+
+          WIDGET_PATH="$APP_PATH/PlugIns/AltWidgetExtension.appex"
+
+          if [ ! -d "$WIDGET_PATH" ]; then
+            echo "ERROR: AltWidgetExtension.appex not found"
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "WIDGET_PATH=$WIDGET_PATH" >> "$GITHUB_ENV"
+
+          echo "App:"
+          echo "$APP_PATH"
+
+          echo "Widget:"
+          echo "$WIDGET_PATH"
+
+      # ============================================================
+      # 9. ????? ?? ????? ?? 0.7.0-alpha ???? ?????
+      # ============================================================
+
+      - name: Verify downloaded SideStore version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleShortVersionString" \
+              "$APP_PATH/Info.plist"
+          )"
+
+          ORIGINAL_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIdentifier" \
+              "$APP_PATH/Info.plist"
+          )"
+
+          echo "Downloaded version: $VERSION"
+          echo "Original Bundle ID: $ORIGINAL_ID"
+
+          case "$VERSION" in
+            0.7.0-20260911.*6032424a*)
+              echo "Correct 0.7.0-alpha build"
+              ;;
+            *)
+              echo "ERROR: Unexpected SideStore version: $VERSION"
+              exit 1
+              ;;
+          esac
+
+      # ============================================================
+      # 10. ????? Bundle IDs ??? App IDs ??????? ???????? ????
+      #
+      # main:
+      # com.SideStore.SideStore.6JKQ4V5NDG
+      #
+      # widget:
+      # com.SideStore.SideStore.6JKQ4V5NDG.AltWidget
+      # ============================================================
+
+      - name: Rewrite SideStore identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import os
+          import plistlib
+
+          app = os.environ["APP_PATH"]
+          widget = os.environ["WIDGET_PATH"]
+
+          main_id = os.environ["MAIN_BUNDLE_ID"]
+          widget_id = os.environ["WIDGET_BUNDLE_ID"]
+          app_group = os.environ["SIDESTORE_APP_GROUP"]
+
+          def load(path):
+              with open(path, "rb") as f:
+                  return plistlib.load(f)
+
+          def save(path, obj):
+              with open(path, "wb") as f:
+                  plistlib.dump(
+                      obj,
+                      f,
+                      fmt=plistlib.FMT_XML,
+                      sort_keys=False
+                  )
+
+          # -------------------------
+          # Main app Info.plist
+          # -------------------------
+
+          main_plist = os.path.join(app, "Info.plist")
+          p = load(main_plist)
+
+          p["CFBundleIdentifier"] = main_id
+          p["ALTAppGroups"] = [app_group]
+
+          # SideStore backup URL scheme
+          for entry in p.get("CFBundleURLTypes", []):
+              schemes = entry.get("CFBundleURLSchemes", [])
+
+              for index, scheme in enumerate(schemes):
+                  if scheme == "sidestore-com.SideStore.SideStore":
+                      schemes[index] = f"sidestore-{main_id}"
+
+          save(main_plist, p)
+
+          # -------------------------
+          # Widget Info.plist
+          # -------------------------
+
+          widget_plist = os.path.join(widget, "Info.plist")
+          p = load(widget_plist)
+
+          p["CFBundleIdentifier"] = widget_id
+          p["ALTAppGroups"] = [app_group]
+
+          save(widget_plist, p)
+
+          print("Main Bundle ID  :", main_id)
+          print("Widget Bundle ID:", widget_id)
+          print("App Group       :", app_group)
+          PY
+
+      # ============================================================
+      # 11. ????? mobileprovision ???? ??????? ????Widget
+      # ============================================================
+
+      - name: Embed provisioning profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp \
+            signing/main.mobileprovision \
+            "$APP_PATH/embedded.mobileprovision"
+
+          cp \
+            signing/AltWidget.mobileprovision \
+            "$WIDGET_PATH/embedded.mobileprovision"
+
+          rm -rf "$APP_PATH/_CodeSignature"
+          rm -rf "$WIDGET_PATH/_CodeSignature"
+
+          echo "Provisioning profiles embedded"
+
+      # ============================================================
+      # 12. ????? Frameworks / dylibs ?????
+      # ============================================================
+
+      - name: Sign nested frameworks and libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -d "$APP_PATH/Frameworks" ]; then
+
+            while IFS= read -r -d '' dylib; do
+              echo "Signing dylib:"
+              echo "$dylib"
+
+              codesign \
+                --force \
+                --sign "$SIGNING_IDENTITY" \
+                --keychain "$SIGNING_KEYCHAIN" \
+                --timestamp=none \
+                "$dylib"
+            done < <(
+              find "$APP_PATH/Frameworks" \
+                -type f \
+                -name '*.dylib' \
+                -print0
+            )
+
+            while IFS= read -r -d '' framework; do
+              echo "Signing framework:"
+              echo "$framework"
+
+              codesign \
+                --force \
+                --sign "$SIGNING_IDENTITY" \
+                --keychain "$SIGNING_KEYCHAIN" \
+                --timestamp=none \
+                "$framework"
+            done < <(
+              find "$APP_PATH/Frameworks" \
+                -type d \
+                -name '*.framework' \
+                -print0
+            )
+
+          fi
+
+      # ============================================================
+      # 13. ????? AltWidgetExtension ???????? ???????
+      #     ?profile ????? ??
+      # ============================================================
+
+      - name: Sign AltWidgetExtension
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          codesign \
+            --force \
+            --sign "$SIGNING_IDENTITY" \
+            --keychain "$SIGNING_KEYCHAIN" \
+            --entitlements signing/widget-entitlements.plist \
+            --generate-entitlement-der \
+            --timestamp=none \
+            "$WIDGET_PATH"
+
+          echo "AltWidget signed"
+
+          codesign \
+            --verify \
+            --strict \
+            --verbose=4 \
+            "$WIDGET_PATH"
+
+      # ============================================================
+      # 14. ????? SideStore ??????? ??????
+      # ============================================================
+
+      - name: Sign SideStore app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          codesign \
+            --force \
+            --sign "$SIGNING_IDENTITY" \
+            --keychain "$SIGNING_KEYCHAIN" \
+            --entitlements signing/main-entitlements.plist \
+            --generate-entitlement-der \
+            --timestamp=none \
+            "$APP_PATH"
+
+          echo "Main SideStore app signed"
+
+      # ============================================================
+      # 15. ??? ???????
+      # ============================================================
+
+      - name: Verify final signature
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Main signature:"
+          codesign \
+            -d \
+            --verbose=4 \
+            "$APP_PATH" \
+            2>&1
+
+          echo ""
+          echo "Main entitlements:"
+          codesign \
+            -d \
+            --entitlements :- \
+            "$APP_PATH" \
+            2>/dev/null
+
+          echo ""
+          echo "Widget signature:"
+          codesign \
+            -d \
+            --verbose=4 \
+            "$WIDGET_PATH" \
+            2>&1
+
+          echo ""
+          echo "Widget entitlements:"
+          codesign \
+            -d \
+            --entitlements :- \
+            "$WIDGET_PATH" \
+            2>/dev/null
+
+          echo ""
+          echo "Deep verification:"
+
+          codesign \
+            --verify \
+            --deep \
+            --strict \
+            --verbose=4 \
+            "$APP_PATH"
+
+          echo "SIGNATURE CHECK PASSED"
+
+      # ============================================================
+      # 16. ????? IPA ??????? ?????? ???? ?????
+      # ============================================================
+
+      - name: Create SideStorequsai.ipa
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -f SideStorequsai.ipa
+
+          cd work
+
+          /usr/bin/zip \
+            -qry \
+            ../SideStorequsai.ipa \
+            Payload
+
+          cd ..
+
+          test -s SideStorequsai.ipa
+
+          echo "Final IPA:"
+          ls -lh SideStorequsai.ipa
+
+          unzip -t SideStorequsai.ipa >/dev/null
+
+          echo "Final IPA ZIP test: OK"
+
+      # ============================================================
+      # 17. SHA256
+      # ============================================================
+
+      - name: Calculate SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shasum -a 256 SideStorequsai.ipa \
+            | tee SideStorequsai.sha256
+
+      # ============================================================
+      # 18. ??? ????? ???????
+      # ============================================================
+
+      - name: Upload SideStorequsai.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: SideStorequsai
+          path: |
+            SideStorequsai.ipa
+            SideStorequsai.sha256
+          if-no-files-found: error
+          retention-days: 3
