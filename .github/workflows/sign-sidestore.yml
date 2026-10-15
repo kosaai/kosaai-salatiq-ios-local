@@ -620,6 +620,28 @@ jobs:
             -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
+          # codesign must be able to resolve the imported key through the
+          # user's search list, even when --keychain is supplied explicitly.
+          python3 - "$KEYCHAIN_PATH" <<'PY'
+          import shlex
+          import subprocess
+          import sys
+
+          keychain = sys.argv[1]
+          existing = shlex.split(subprocess.check_output(
+              ["security", "list-keychains", "-d", "user"],
+              text=True,
+          ))
+          search_list = [keychain] + [
+              path for path in existing if path != keychain
+          ]
+          subprocess.run(
+              ["security", "list-keychains", "-d", "user", "-s", *search_list],
+              check=True,
+          )
+          print("Temporary Keychain added to user search list")
+          PY
+
           security import \
             signing/normalized.p12 \
             -f pkcs12 \
