@@ -1,0 +1,55 @@
+name: Probe iOS build toolchain
+
+on:
+  push:
+    branches:
+      - ci/ios-local-llm-ipa
+    paths:
+      - '.github/workflows/probe-toolchain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - macos-26
+          - xcode-27
+    steps:
+      - name: Collect host facts
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "=== runner ==="
+          echo "RUNNER_OS=${RUNNER_OS} RUNNER_ARCH=${RUNNER_ARCH} IMAGE=${ImageOS:-?} ImageVersion=${ImageVersion:-?}"
+          sw_vers
+          uname -a
+          echo "=== disk ==="
+          df -h / /Users/runner 2>/dev/null || df -h /
+          echo "=== memory / cpu ==="
+          sysctl -n hw.memsize 2>/dev/null | awk '{print $1/1073741824" GiB"}'
+          sysctl -n hw.ncpu 2>/dev/null
+          echo "=== installed Xcode apps ==="
+          ls -1d /Applications/Xcode*.app 2>/dev/null || echo "none"
+          echo "=== xcodebuild default ==="
+          xcodebuild -version 2>&1 || echo "xcodebuild unavailable"
+          echo "=== iPhoneOS SDK of default Xcode ==="
+          xcrun --sdk iphoneos --show-sdk-version 2>&1 || echo "no iphoneos sdk"
+          echo "=== metal toolchain ==="
+          xcrun --find metal 2>&1 || echo "METAL TOOLCHAIN MISSING"
+          xcrun metal --version 2>&1 | head -5 || echo "METAL COMPILE FAILED"
+          echo "=== swift ==="
+          swift --version 2>&1 | head -3
+          echo "=== tools ==="
+          cmake --version 2>&1 | head -1
+          pod --version 2>&1 | head -1
+          xcodegen --version 2>&1 | head -1 || echo "xcodegen not installed"
+          echo "=== brew ==="
+          brew --version 2>&1 | head -1
