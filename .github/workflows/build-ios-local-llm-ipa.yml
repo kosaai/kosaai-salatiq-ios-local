@@ -1,0 +1,202 @@
+name: Build iOS Local LLM IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/ios-local-llm-ipa
+    paths:
+      - '.github/workflows/build-ios-local-llm-ipa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ios-local-llm-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: Mesutcydev/ios-local-llm
+  UPSTREAM_REF: f38d6ce8e4a0328cd5a43b80ad0854d3fdebd47f
+  XCODE_APP: /Applications/Xcode_26.6.app
+
+jobs:
+  build:
+    name: Build unsigned IPA (OnDeviceLAS, iOS device)
+    runs-on: macos-26
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout upstream source with pinned submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          submodules: recursive
+          path: upstream
+          persist-credentials: false
+
+      - name: Select Xcode explicitly and report the toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d "${XCODE_APP}" ]]; then
+            sudo xcode-select -s "${XCODE_APP}"
+          else
+            echo "::warning::${XCODE_APP} not found; using the image default"
+          fi
+          xcode_version="$(xcodebuild -version | head -1 | awk '{print $2}')"
+          echo "XCODE_VERSION=${xcode_version}" >> "$GITHUB_ENV"
+          echo "=== selected Xcode ==="
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos --show-sdk-path
+          echo "=== metal toolchain (required: native frameworks build with GGML_METAL=ON) ==="
+          xcrun --find metal
+          xcrun metal --version | head -2
+          echo "=== host resources ==="
+          sw_vers
+          df -h / | tail -1
+          sysctl -n hw.memsize | awk '{print $1/1073741824" GiB RAM"}'
+          sysctl -n hw.ncpu | awk '{print $1" CPUs"}'
+
+      - name: Install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate the Xcode project from project.yml
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate
+          test -d OnDeviceLAS.xcodeproj
+          echo "generated OnDeviceLAS.xcodeproj"
+
+      - name: Install locked CocoaPods dependencies
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          pod --version
+          pod install --deployment
+
+      - name: Derive the native framework cache key
+        id: native-cache-key
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          native_hash="$(
+            {
+              git submodule status
+              git hash-object \
+                Patches/llama.cpp-ios-only-xcframework.patch \
+                scripts/build_native_frameworks.sh \
+                scripts/native/build_whisper_ios.sh
+            } | shasum -a 256 | awk '{ print $1 }'
+          )"
+          key="native-ios-${RUNNER_OS}-${RUNNER_ARCH}-xcode${XCODE_VERSION}-${native_hash}"
+          echo "key=${key}" >> "$GITHUB_OUTPUT"
+          echo "native cache key: ${key}"
+
+      - name: Restore pinned native frameworks
+        id: native-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            upstream/ThirdParty/llama.cpp/build-apple/llama.xcframework
+            upstream/ThirdParty/whisper.cpp/build-apple/whisper.xcframework
+          key: ${{ steps.native-cache-key.outputs.key }}
+
+      - name: Build pinned native inference frameworks
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/build_native_frameworks.sh
+          ls -la ThirdParty/llama.cpp/build-apple/
+          ls -la ThirdParty/whisper.cpp/build-apple/
+
+      - name: Resolve Swift package dependencies
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -workspace OnDeviceLAS.xcworkspace \
+            -scheme OnDeviceLAS
+
+      - name: Build the app for the iOS device (unsigned)
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -workspace OnDeviceLAS.xcworkspace \
+            -scheme OnDeviceLAS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 2>&1 | tee build/xcodebuild.log
+
+      - name: Assemble and verify the IPA
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "${app_path}"
+          echo "app bundle: ${app_path}"
+
+          rm -rf build/ipa
+          mkdir -p build/ipa/Payload
+          cp -R "${app_path}" build/ipa/Payload/
+          ( cd build/ipa && zip -qry ../OnDeviceLAS-unsigned.ipa Payload )
+
+          echo "=== IPA file type ==="
+          file build/OnDeviceLAS-unsigned.ipa
+          echo "=== IPA size ==="
+          ls -lh build/OnDeviceLAS-unsigned.ipa
+          echo "=== IPA contents (head) ==="
+          unzip -l build/OnDeviceLAS-unsigned.ipa | head -30
+          echo "=== embedded frameworks ==="
+          ls -1 build/ipa/Payload/*.app/Frameworks/ 2>/dev/null || echo "(no Frameworks dir)"
+          echo "=== executable architecture ==="
+          lipo -info build/ipa/Payload/*.app/OnDeviceLAS
+          echo "=== bundle identity ==="
+          plutil -extract CFBundleIdentifier raw build/ipa/Payload/*.app/Info.plist
+          plutil -extract CFBundleShortVersionString raw build/ipa/Payload/*.app/Info.plist
+          plutil -extract CFBundleVersion raw build/ipa/Payload/*.app/Info.plist
+          echo "=== signature state (expected: unsigned) ==="
+          codesign -dv build/ipa/Payload/*.app 2>&1 || echo "(not signed - unsigned build)"
+          echo "=== IPA integrity ==="
+          unzip -t build/OnDeviceLAS-unsigned.ipa | tail -2
+
+      - name: Upload the IPA artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: OnDeviceLAS-unsigned-ipa
+          path: upstream/build/OnDeviceLAS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: OnDeviceLAS-build-log
+          path: upstream/build/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 14
