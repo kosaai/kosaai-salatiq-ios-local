@@ -163,6 +163,13 @@ jobs:
             ls -1 "${fw}"
           done
 
+      - name: Restore cached Swift package checkouts
+        id: spm-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: upstream/build/SourcePackages
+          key: spm-${{ env.UPSTREAM_REF }}-xcode${{ env.XCODE_VERSION }}-${{ hashFiles('upstream/OnDeviceLAS.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
       - name: Resolve Swift package dependencies
         working-directory: upstream
         shell: bash
@@ -170,7 +177,8 @@ jobs:
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
             -workspace OnDeviceLAS.xcworkspace \
-            -scheme OnDeviceLAS
+            -scheme OnDeviceLAS \
+            -clonedSourcePackagesDirPath build/SourcePackages
 
       - name: Build the app for the iOS device (unsigned)
         working-directory: upstream
@@ -185,6 +193,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -209,6 +218,10 @@ jobs:
           cp -R "${app_path}" build/ipa/Payload/
           ( cd build/ipa && zip -qry ../OnDeviceLAS-unsigned.ipa Payload )
 
+          payload_app="build/ipa/Payload/$(basename "${app_path}")"
+          test -d "${payload_app}"
+          echo "payload app: ${payload_app}"
+
           echo "=== IPA file type ==="
           file build/OnDeviceLAS-unsigned.ipa
           echo "=== IPA size ==="
@@ -217,19 +230,21 @@ jobs:
           unzip -l build/OnDeviceLAS-unsigned.ipa > ipa-contents.txt 2>&1 || true
           head -30 ipa-contents.txt
           echo "=== embedded frameworks ==="
-          ls -1 build/ipa/Payload/*.app/Frameworks/ 2>/dev/null || echo "(no Frameworks dir)"
+          ls -1 "${payload_app}/Frameworks/" 2>/dev/null || echo "(no Frameworks dir)"
           echo "=== executable architecture ==="
-          lipo -info "build/ipa/Payload/*.app/${exe_name}"
+          lipo -info "${payload_app}/${exe_name}"
           echo "=== bundle identity ==="
-          plutil -extract CFBundleIdentifier raw build/ipa/Payload/*.app/Info.plist
-          plutil -extract CFBundleShortVersionString raw build/ipa/Payload/*.app/Info.plist
-          plutil -extract CFBundleVersion raw build/ipa/Payload/*.app/Info.plist
+          plutil -extract CFBundleIdentifier raw "${payload_app}/Info.plist"
+          plutil -extract CFBundleShortVersionString raw "${payload_app}/Info.plist"
+          plutil -extract CFBundleVersion raw "${payload_app}/Info.plist"
           echo "=== signature state (expected: unsigned) ==="
-          codesign -dv build/ipa/Payload/*.app > sig.txt 2>&1 || echo "(not signed - unsigned build)"
+          codesign -dv "${payload_app}" > sig.txt 2>&1 || echo "(not signed - unsigned build)"
           cat sig.txt
           echo "=== IPA integrity ==="
           unzip -t build/OnDeviceLAS-unsigned.ipa > ipa-test.txt 2>&1 || true
           tail -2 ipa-test.txt
+          echo "=== IPA sha256 ==="
+          shasum -a 256 build/OnDeviceLAS-unsigned.ipa
 
       - name: Upload the IPA artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
